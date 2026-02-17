@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -14,16 +15,7 @@ class FileProcessProvider with ChangeNotifier {
   String? destPath;
   String clientName = 'WaterBrothers'; // Default from script
   int selectedYear = 2025;
-  List<String> validMonths = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-  ];
+  List<String> validMonths = ['Jan'];
   List<String> allMonths = [
     'Jan',
     'Feb',
@@ -70,16 +62,30 @@ class FileProcessProvider with ChangeNotifier {
   int errors = 0;
 
   bool _stopRequested = false;
+  Timer? _refreshTimer;
 
   FileProcessProvider() {
     _loadSettings();
+  }
+
+  void _startTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
+      notifyListeners();
+    });
+  }
+
+  void _stopTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    notifyListeners(); // Ensure final state is updated
   }
 
   void _addLog(String message) {
     final timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
     logs.insert(0, '[$timestamp] $message');
     if (logs.length > 1000) logs.removeLast();
-    notifyListeners();
+    // notifyListeners(); // Throttled
   }
 
   Future<void> _loadSettings() async {
@@ -91,6 +97,7 @@ class FileProcessProvider with ChangeNotifier {
     // validMonths loading could be added if we want to persist that selection
     lastProcessedParent = prefs.getString('lastProcessedParent');
     lastProcessedChild = prefs.getString('lastProcessedChild');
+    _detectClientName();
     notifyListeners();
   }
 
@@ -122,6 +129,7 @@ class FileProcessProvider with ChangeNotifier {
 
   void setSourcePath(String? path) {
     sourcePath = path;
+    _detectClientName();
     _saveSettings();
     notifyListeners();
   }
@@ -132,11 +140,39 @@ class FileProcessProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void setClientName(String name) {
-    clientName = name;
-    _saveSettings();
-    notifyListeners();
+  void _detectClientName() {
+    if (sourcePath == null) {
+      clientName = 'Unknown';
+      return;
+    }
+
+    String? detected;
+
+    // Check for "myFlo" prefixed folder in the path
+    List<String> segments = p.split(sourcePath!);
+    for (String segment in segments) {
+      if (segment.toLowerCase().startsWith('myflo') && segment.length > 5) {
+        // Extract client name after "myFlo"
+        detected = segment.substring(5);
+        break;
+      }
+    }
+
+    // Fallback to containment check if no "myFlo" folder found
+    if (detected == null) {
+      for (var client in availableClients) {
+        if (sourcePath!.toLowerCase().contains(client.toLowerCase())) {
+          detected = client;
+          break;
+        }
+      }
+    }
+
+    clientName = detected ?? 'Unknown';
   }
+
+  // Removed manual setClientName as it's now auto-detected
+  // void setClientName(String name) { ... }
 
   void setYear(int year) {
     selectedYear = year;
@@ -192,6 +228,8 @@ class FileProcessProvider with ChangeNotifier {
       );
     }
 
+    _startTimer();
+
     try {
       final sourceDir = Directory(sourcePath!);
       if (!await sourceDir.exists()) {
@@ -214,7 +252,7 @@ class FileProcessProvider with ChangeNotifier {
     } finally {
       isProcessing = false;
       currentStatus = 'Idle';
-      notifyListeners();
+      _stopTimer();
     }
   }
 
@@ -246,7 +284,7 @@ class FileProcessProvider with ChangeNotifier {
       }
 
       currentStatus = 'Processing Parent: $parentName';
-      notifyListeners();
+      // notifyListeners(); // Throttled
 
       await _processSubDirectories(entity, parentName);
 
@@ -415,7 +453,7 @@ class FileProcessProvider with ChangeNotifier {
 
       _addLog('Moved [$month-$year]: ${p.basename(file.path)}');
       filesMoved++;
-      notifyListeners();
+      // notifyListeners(); // Throttled
     } catch (e) {
       _addLog('Failed to move ${file.path}: $e');
       errors++;

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/file_process_provider.dart';
+import '../providers/delete_process_provider.dart';
 
-class TransferScreen extends StatelessWidget {
-  const TransferScreen({super.key});
+class DeleteScreen extends StatelessWidget {
+  const DeleteScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<FileProcessProvider>(context);
+    final provider = Provider.of<DeleteProcessProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Email Attachment Cleaner')),
+      appBar: AppBar(title: const Text('Delete Files')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -24,43 +24,16 @@ class TransferScreen extends StatelessWidget {
                   children: [
                     _buildPathRow(
                       context,
-                      label: 'Source',
-                      path: provider.sourcePath,
-                      onPick: provider.pickSource,
-                    ),
-                    const SizedBox(height: 10),
-                    _buildPathRow(
-                      context,
-                      label: 'Destination',
-                      path: provider.destPath,
-                      onPick: provider.pickDest,
+                      label: 'Target Folder',
+                      path: provider.targetPath,
+                      onPick: provider.pickTarget,
                     ),
                     const SizedBox(height: 10),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(
-                          width: 250, // Fixed proportional width
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Client Name',
-                              border: OutlineInputBorder(
-                                borderSide: BorderSide(color: Colors.grey),
-                              ),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 10,
-                              ),
-                            ),
-                            child: Text(
-                              provider.clientName,
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        SizedBox(
-                          width: 100, // Fixed width for year
+                          width: 100,
                           child: DropdownButtonFormField<int>(
                             value: provider.selectedYear,
                             decoration: const InputDecoration(
@@ -125,14 +98,14 @@ class TransferScreen extends StatelessWidget {
               children: [
                 if (!provider.isProcessing) ...[
                   ElevatedButton.icon(
-                    onPressed:
-                        (provider.sourcePath != null &&
-                            provider.destPath != null)
-                        ? provider.startProcessing
+                    onPressed: provider.targetPath != null
+                        ? () => _showDeleteConfirmation(context, provider)
                         : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Processing'),
+                    icon: const Icon(Icons.delete_forever),
+                    label: const Text('Delete All'),
                     style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 30,
                         vertical: 15,
@@ -141,32 +114,9 @@ class TransferScreen extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   OutlinedButton.icon(
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Clear Progress?'),
-                          content: const Text(
-                            'This will reset the resume checkpoint. Are you sure?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                provider.clearProgress();
-                                Navigator.pop(ctx);
-                              },
-                              child: const Text('Clear'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                    onPressed: provider.clearLogs,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Clear Progress'),
+                    label: const Text('Clear Logs'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 20,
@@ -180,7 +130,7 @@ class TransferScreen extends StatelessWidget {
                     icon: const Icon(Icons.stop),
                     label: const Text('Stop'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
+                      backgroundColor: Colors.grey,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 30,
@@ -203,16 +153,16 @@ class TransferScreen extends StatelessWidget {
             Row(
               children: [
                 _buildStatCard(
-                  'Moved',
-                  provider.filesMoved.toString(),
-                  Colors.green,
-                  Icons.check_circle,
+                  'Deleted',
+                  provider.deletedCount.toString(),
+                  Colors.redAccent,
+                  Icons.delete,
                 ),
                 _buildStatCard(
                   'Errors',
-                  provider.errors.toString(),
-                  Colors.red,
-                  Icons.error,
+                  provider.errorCount.toString(),
+                  Colors.orange,
+                  Icons.error_outline,
                 ),
               ],
             ),
@@ -236,7 +186,7 @@ class TransferScreen extends StatelessWidget {
                       style: const TextStyle(
                         fontFamily: 'Consolas',
                         fontSize: 12,
-                        color: Colors.greenAccent,
+                        color: Colors.redAccent,
                       ),
                     );
                   },
@@ -281,6 +231,54 @@ class TransferScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showDeleteConfirmation(
+    BuildContext context,
+    DeleteProcessProvider provider,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Deletion'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to delete EVERYTHING inside:'),
+            const SizedBox(height: 8),
+            Text(
+              provider.targetPath ?? '',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Filter: Year ${provider.selectedYear}, Months: ${provider.validMonths}',
+              style: const TextStyle(fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This action cannot be undone!',
+              style: TextStyle(color: Colors.red),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              provider.deleteFiles();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }
