@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'screens/main_screen.dart';
+import 'screens/splash_screen.dart';
 import 'providers/file_process_provider.dart';
 import 'providers/delete_process_provider.dart';
 
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,
         ),
-        home: const MainScreen(),
+        home: const SplashScreen(),
       ),
     );
   }

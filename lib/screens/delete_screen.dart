@@ -35,7 +35,7 @@ class DeleteScreen extends StatelessWidget {
                         SizedBox(
                           width: 100,
                           child: DropdownButtonFormField<int>(
-                            value: provider.selectedYear,
+                            initialValue: provider.selectedYear,
                             decoration: const InputDecoration(
                               labelText: 'Year',
                               border: OutlineInputBorder(),

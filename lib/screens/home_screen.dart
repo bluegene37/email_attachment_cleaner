@@ -62,7 +62,7 @@ class TransferScreen extends StatelessWidget {
                         SizedBox(
                           width: 100, // Fixed width for year
                           child: DropdownButtonFormField<int>(
-                            value: provider.selectedYear,
+                            initialValue: provider.selectedYear,
                             decoration: const InputDecoration(
                               labelText: 'Year',
                               border: OutlineInputBorder(),
