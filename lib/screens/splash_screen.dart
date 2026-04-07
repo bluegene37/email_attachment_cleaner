@@ -117,7 +117,7 @@ class _SplashScreenState extends State<SplashScreen>
                 const SizedBox(height: 32),
                 // App name
                 const Text(
-                  'Email Attachment Cleaner',
+                  'Files Utility',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w600,
@@ -127,7 +127,7 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Manage your email attachments with ease',
+                  'Manage your files and transfers with ease',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white.withValues(alpha: 0.6),

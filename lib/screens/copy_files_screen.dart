@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../providers/file_process_provider.dart';
+import '../providers/copy_files_provider.dart';
 
-class TransferScreen extends StatelessWidget {
-  const TransferScreen({super.key});
+class CopyFilesScreen extends StatelessWidget {
+  const CopyFilesScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<FileProcessProvider>(context);
+    final provider = Provider.of<CopyFilesProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Files Utility')),
+      appBar: AppBar(title: const Text('Copy Files')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -26,89 +27,63 @@ class TransferScreen extends StatelessWidget {
                       context,
                       label: 'Source',
                       path: provider.sourcePath,
-                      onPick: provider.pickSource,
+                      onPick: provider.isProcessing ? null : provider.pickSource,
                     ),
                     const SizedBox(height: 10),
                     _buildPathRow(
                       context,
                       label: 'Destination',
                       path: provider.destPath,
-                      onPick: provider.pickDest,
+                      onPick: provider.isProcessing ? null : provider.pickDest,
                     ),
                     const SizedBox(height: 10),
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: 250, // Fixed proportional width
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Client Name',
-                              border: OutlineInputBorder(
-                                borderSide: BorderSide(color: Colors.grey),
-                              ),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 10,
-                              ),
-                            ),
-                            child: Text(
-                              provider.clientName,
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        SizedBox(
-                          width: 100, // Fixed width for year
-                          child: DropdownButtonFormField<int>(
-                            initialValue: provider.selectedYear,
-                            decoration: const InputDecoration(
-                              labelText: 'Year',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 0,
-                              ),
-                            ),
-                            items: provider.availableYears.map((int value) {
-                              return DropdownMenuItem<int>(
-                                value: value,
-                                child: Text(value.toString()),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) provider.setYear(val);
-                            },
+                        Expanded(
+                          child: _buildDatePicker(
+                            context,
+                            label: 'From Date',
+                            date: provider.fromDate,
+                            onPicked: provider.isProcessing ? (date) {} : (date) => provider.setFromDate(date),
                           ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Months:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 4),
-                              Wrap(
-                                spacing: 8.0,
-                                runSpacing: 4.0,
-                                children: provider.allMonths.map((m) {
-                                  final isSelected = provider.validMonths
-                                      .contains(m);
-                                  return FilterChip(
-                                    label: Text(m),
-                                    selected: isSelected,
-                                    onSelected: (bool selected) {
-                                      provider.toggleMonth(m);
-                                    },
-                                    visualDensity: VisualDensity.compact,
-                                  );
-                                }).toList(),
-                              ),
-                            ],
+                          child: _buildDatePicker(
+                            context,
+                            label: 'To Date',
+                            date: provider.toDate,
+                            onPicked: provider.isProcessing ? (date) {} : (date) => provider.setToDate(date),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: provider.enableTimeWindow,
+                          onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
+                        ),
+                        const Text('Limit Run Time', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildTimePicker(
+                            context,
+                            label: 'From',
+                            time: provider.runFromTime,
+                            enabled: !provider.isProcessing && provider.enableTimeWindow,
+                            onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunFromTime(time),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildTimePicker(
+                            context,
+                            label: 'To',
+                            time: provider.runToTime,
+                            enabled: !provider.isProcessing && provider.enableTimeWindow,
+                            onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunToTime(time),
                           ),
                         ),
                       ],
@@ -130,46 +105,11 @@ class TransferScreen extends StatelessWidget {
                             provider.destPath != null)
                         ? provider.startProcessing
                         : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Processing'),
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Start Copying'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 30,
-                        vertical: 15,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Clear Progress?'),
-                          content: const Text(
-                            'This will reset the resume checkpoint. Are you sure?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                provider.clearProgress();
-                                Navigator.pop(ctx);
-                              },
-                              child: const Text('Clear'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Clear Progress'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
                         vertical: 15,
                       ),
                     ),
@@ -203,10 +143,10 @@ class TransferScreen extends StatelessWidget {
             Row(
               children: [
                 _buildStatCard(
-                  'Moved',
-                  provider.filesMoved.toString(),
-                  Colors.green,
-                  Icons.check_circle,
+                  'Copied',
+                  provider.filesCopied.toString(),
+                  Colors.blue,
+                  Icons.file_copy,
                 ),
                 _buildStatCard(
                   'Errors',
@@ -236,7 +176,7 @@ class TransferScreen extends StatelessWidget {
                       style: const TextStyle(
                         fontFamily: 'Consolas',
                         fontSize: 12,
-                        color: Colors.greenAccent,
+                        color: Colors.lightBlueAccent,
                       ),
                     );
                   },
@@ -244,6 +184,77 @@ class TransferScreen extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDatePicker(
+    BuildContext context, {
+    required String label,
+    required DateTime date,
+    required ValueChanged<DateTime> onPicked,
+  }) {
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final provider = Provider.of<CopyFilesProvider>(context, listen: false);
+    return InkWell(
+      onTap: provider.isProcessing ? null : () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: date,
+          firstDate: DateTime(2010),
+          lastDate: DateTime(DateTime.now().year + 2),
+        );
+        if (picked != null) {
+          onPicked(picked);
+        }
+      },
+      child: Opacity(
+        opacity: provider.isProcessing ? 0.5 : 1.0,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            suffixIcon: const Icon(Icons.calendar_today, size: 18),
+          ),
+          child: Text(dateFormat.format(date)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimePicker(
+    BuildContext context, {
+    required String label,
+    required TimeOfDay time,
+    required bool enabled,
+    required ValueChanged<TimeOfDay> onPicked,
+  }) {
+    return InkWell(
+      onTap: enabled
+          ? () async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: time,
+              );
+              if (picked != null) {
+                onPicked(picked);
+              }
+            }
+          : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.5,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            suffixIcon: const Icon(Icons.access_time, size: 18),
+          ),
+          child: Text(time.format(context)),
         ),
       ),
     );
@@ -258,9 +269,9 @@ class TransferScreen extends StatelessWidget {
     return Expanded(
       child: Card(
         elevation: 2,
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: color.withOpacity(0.5)),
+          side: BorderSide(color: color.withValues(alpha: 0.5)),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
@@ -289,7 +300,7 @@ class TransferScreen extends StatelessWidget {
     BuildContext context, {
     required String label,
     String? path,
-    required VoidCallback onPick,
+    required VoidCallback? onPick,
   }) {
     return Row(
       children: [

@@ -5,9 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/file_logger.dart';
 
 class DeleteProcessProvider with ChangeNotifier {
   final Logger _log = Logger('DeleteProcessProvider');
+  final FileLogger _fileLogger = FileLogger();
 
   String? targetPath;
   bool isProcessing = false;
@@ -45,8 +48,33 @@ class DeleteProcessProvider with ChangeNotifier {
     return years.reversed.toList();
   }
 
+  DeleteProcessProvider() {
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    targetPath = prefs.getString('delete_targetPath');
+    selectedYear = prefs.getInt('delete_selectedYear') ?? 2025;
+    final savedMonths = prefs.getStringList('delete_validMonths');
+    if (savedMonths != null && savedMonths.isNotEmpty) {
+      validMonths = savedMonths;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (targetPath != null) {
+      await prefs.setString('delete_targetPath', targetPath!);
+    }
+    await prefs.setInt('delete_selectedYear', selectedYear);
+    await prefs.setStringList('delete_validMonths', validMonths);
+  }
+
   void setYear(int year) {
     selectedYear = year;
+    _saveSettings();
     notifyListeners();
   }
 
@@ -56,6 +84,7 @@ class DeleteProcessProvider with ChangeNotifier {
     } else {
       validMonths.add(month);
     }
+    _saveSettings();
     notifyListeners();
   }
 
@@ -83,6 +112,7 @@ class DeleteProcessProvider with ChangeNotifier {
     final path = await getDirectoryPath();
     if (path != null) {
       targetPath = path;
+      _saveSettings();
       _addLog('Target selected: $targetPath');
       notifyListeners();
     }
@@ -105,11 +135,13 @@ class DeleteProcessProvider with ChangeNotifier {
   Future<void> deleteFiles() async {
     if (targetPath == null) {
       _addLog('Error: No target directory selected.');
+      await _fileLogger.error('Delete', 'No target directory selected.');
       return;
     }
 
     if (validMonths.isEmpty) {
       _addLog('Error: No months selected. Please select at least one month.');
+      await _fileLogger.error('Delete', 'No months selected.');
       return;
     }
 
@@ -123,12 +155,20 @@ class DeleteProcessProvider with ChangeNotifier {
     _addLog('Starting deletion in: $targetPath');
     _addLog('Filter: Year $selectedYear, Months $validMonths');
 
+    await _fileLogger.logRunStart(
+      operation: 'Delete',
+      targetPath: targetPath,
+      year: selectedYear,
+      months: validMonths,
+    );
+
     _startTimer();
 
     try {
       final targetDir = Directory(targetPath!);
       if (!await targetDir.exists()) {
         _addLog('Error: Target directory does not exist.');
+        await _fileLogger.error('Delete', 'Target directory does not exist: $targetPath');
         return;
       }
 
@@ -142,7 +182,14 @@ class DeleteProcessProvider with ChangeNotifier {
     } catch (e, stack) {
       _addLog('Critical Error: $e');
       _log.severe(e, stack);
+      await _fileLogger.error('Delete', 'Critical Error: $e\n$stack');
     } finally {
+      await _fileLogger.logRunEnd(
+        operation: 'Delete',
+        filesProcessed: deletedCount,
+        errors: errorCount,
+        wasStopped: _stopRequested,
+      );
       isProcessing = false;
       currentStatus = 'Idle';
       _stopTimer();
@@ -180,6 +227,7 @@ class DeleteProcessProvider with ChangeNotifier {
       }
     } catch (e) {
       _addLog('Error scanning directory: $e');
+      await _fileLogger.error('Delete', 'Error scanning directory: $e');
       errorCount++;
     }
   }
@@ -201,12 +249,13 @@ class DeleteProcessProvider with ChangeNotifier {
       String monthStr = DateFormat('MMM').format(modified);
 
       // Check filters
-      if (int.parse(yearStr) == selectedYear &&
+      if (int.parse(yearStr) <= selectedYear &&
           validMonths.contains(monthStr)) {
         await _deleteFile(file);
       }
     } catch (e) {
       _addLog('Error checking ${p.basename(file.path)}: $e');
+      await _fileLogger.error('Delete', 'Error checking ${file.path}: $e');
       errorCount++;
     }
   }
@@ -221,6 +270,7 @@ class DeleteProcessProvider with ChangeNotifier {
       // notifyListeners();
     } catch (e) {
       _addLog('Failed to delete ${p.basename(file.path)}: $e');
+      await _fileLogger.error('Delete', 'Failed to delete ${file.path}: $e');
       errorCount++;
     }
   }

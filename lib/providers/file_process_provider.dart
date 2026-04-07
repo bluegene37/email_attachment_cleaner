@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
+import '../services/file_logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FileProcessProvider with ChangeNotifier {
   final Logger _log = Logger('FileProcessProvider');
+  final FileLogger _fileLogger = FileLogger();
 
   // State
   String? sourcePath;
@@ -94,7 +96,10 @@ class FileProcessProvider with ChangeNotifier {
     destPath = prefs.getString('destPath');
     clientName = prefs.getString('clientName') ?? 'WaterBrothers';
     selectedYear = prefs.getInt('selectedYear') ?? 2025;
-    // validMonths loading could be added if we want to persist that selection
+    final savedMonths = prefs.getStringList('transfer_validMonths');
+    if (savedMonths != null && savedMonths.isNotEmpty) {
+      validMonths = savedMonths;
+    }
     lastProcessedParent = prefs.getString('lastProcessedParent');
     lastProcessedChild = prefs.getString('lastProcessedChild');
     _detectClientName();
@@ -107,6 +112,7 @@ class FileProcessProvider with ChangeNotifier {
     if (destPath != null) await prefs.setString('destPath', destPath!);
     await prefs.setString('clientName', clientName);
     await prefs.setInt('selectedYear', selectedYear);
+    await prefs.setStringList('transfer_validMonths', validMonths);
   }
 
   Future<void> _saveProgress(String parent, String child) async {
@@ -186,6 +192,7 @@ class FileProcessProvider with ChangeNotifier {
     } else {
       validMonths.add(month);
     }
+    _saveSettings();
     notifyListeners();
   }
 
@@ -208,6 +215,7 @@ class FileProcessProvider with ChangeNotifier {
   Future<void> startProcessing() async {
     if (sourcePath == null || destPath == null) {
       _addLog('Error: Source or Destination not selected.');
+      await _fileLogger.error('Transfer', 'Source or Destination not selected.');
       return;
     }
 
@@ -222,10 +230,19 @@ class FileProcessProvider with ChangeNotifier {
     _addLog('Destination: $destPath');
     _addLog('Filter: Year $selectedYear, Months $validMonths');
 
+    await _fileLogger.logRunStart(
+      operation: 'Transfer',
+      sourcePath: sourcePath,
+      destPath: destPath,
+      year: selectedYear,
+      months: validMonths,
+    );
+
     if (lastProcessedParent != null) {
       _addLog(
         'Resuming from Parent: [$lastProcessedParent], Child: [$lastProcessedChild]',
       );
+      await _fileLogger.info('Transfer', 'Resuming from Parent: [$lastProcessedParent], Child: [$lastProcessedChild]');
     }
 
     _startTimer();
@@ -234,6 +251,7 @@ class FileProcessProvider with ChangeNotifier {
       final sourceDir = Directory(sourcePath!);
       if (!await sourceDir.exists()) {
         _addLog('Error: Source directory does not exist.');
+        await _fileLogger.error('Transfer', 'Source directory does not exist: $sourcePath');
         return;
       }
 
@@ -249,7 +267,14 @@ class FileProcessProvider with ChangeNotifier {
     } catch (e, stack) {
       _addLog('Critical Error: $e');
       _log.severe(e, stack);
+      await _fileLogger.error('Transfer', 'Critical Error: $e\n$stack');
     } finally {
+      await _fileLogger.logRunEnd(
+        operation: 'Transfer',
+        filesProcessed: filesMoved,
+        errors: errors,
+        wasStopped: _stopRequested,
+      );
       isProcessing = false;
       currentStatus = 'Idle';
       _stopTimer();
@@ -395,6 +420,7 @@ class FileProcessProvider with ChangeNotifier {
       }
     } catch (e) {
       _addLog('Error accessing ${file.path}: $e');
+      await _fileLogger.error('Transfer', 'Error accessing ${file.path}: $e');
       errors++;
     }
   }
@@ -456,6 +482,7 @@ class FileProcessProvider with ChangeNotifier {
       // notifyListeners(); // Throttled
     } catch (e) {
       _addLog('Failed to move ${file.path}: $e');
+      await _fileLogger.error('Transfer', 'Failed to move ${file.path}: $e');
       errors++;
     }
   }

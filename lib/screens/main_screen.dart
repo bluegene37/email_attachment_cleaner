@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'delete_screen.dart';
+import 'copy_files_screen.dart';
 
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
@@ -8,7 +9,7 @@ class MainScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Email Tool')),
+      appBar: AppBar(title: const Text('Files Utility')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -27,8 +28,32 @@ class MainScreen extends StatelessWidget {
                 },
                 icon: const Icon(Icons.move_to_inbox, size: 28),
                 label: const Text(
-                  'Transfer Email',
+                  'Transfer Files',
                   style: TextStyle(fontSize: 18),
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: 250,
+              height: 60,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CopyFilesScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.file_copy, size: 28),
+                label: const Text(
+                  'Copy Files',
+                  style: TextStyle(fontSize: 18),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade100,
+                  foregroundColor: Colors.blue.shade900,
                 ),
               ),
             ),
@@ -47,7 +72,7 @@ class MainScreen extends StatelessWidget {
                 },
                 icon: const Icon(Icons.delete_forever, size: 28),
                 label: const Text(
-                  'Delete Email',
+                  'Delete Files',
                   style: TextStyle(fontSize: 18),
                 ),
                 style: ElevatedButton.styleFrom(
