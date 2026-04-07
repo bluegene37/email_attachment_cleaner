@@ -52,6 +52,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   msix: ^3.16.7
+  inno_bundle: ^0.11.2
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -100,4 +101,13 @@ msix_config:
   msix_version: 1.0.0.0
   logo_path: windows/runner/resources/app_icon.ico
   capabilities: internetClient
+
+inno_bundle:
+  id: 45c1dad5-92eb-46d2-b870-e4db4aaeeadd
+  name: Email Attachment Cleaner
+  publisher: Developer
+  installer_icon: windows/runner/resources/app_icon.ico
+  admin: auto
+  languages:
+    - english
 
