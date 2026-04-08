@@ -39,11 +39,22 @@ class CopyFilesScreen extends StatelessWidget {
                     const SizedBox(height: 10),
                     Row(
                       children: [
+                        Checkbox(
+                          value: provider.enableDateRange,
+                          onChanged: provider.isProcessing ? null : (val) => provider.setEnableDateRange(val ?? false),
+                        ),
+                        const Text('Limit Date Range', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
                         Expanded(
                           child: _buildDatePicker(
                             context,
                             label: 'From Date',
                             date: provider.fromDate,
+                            enabled: !provider.isProcessing && provider.enableDateRange,
                             onPicked: provider.isProcessing ? (date) {} : (date) => provider.setFromDate(date),
                           ),
                         ),
@@ -53,6 +64,7 @@ class CopyFilesScreen extends StatelessWidget {
                             context,
                             label: 'To Date',
                             date: provider.toDate,
+                            enabled: !provider.isProcessing && provider.enableDateRange,
                             onPicked: provider.isProcessing ? (date) {} : (date) => provider.setToDate(date),
                           ),
                         ),
@@ -193,12 +205,12 @@ class CopyFilesScreen extends StatelessWidget {
     BuildContext context, {
     required String label,
     required DateTime date,
+    required bool enabled,
     required ValueChanged<DateTime> onPicked,
   }) {
     final dateFormat = DateFormat('dd/MM/yyyy');
-    final provider = Provider.of<CopyFilesProvider>(context, listen: false);
     return InkWell(
-      onTap: provider.isProcessing ? null : () async {
+      onTap: enabled ? () async {
         final picked = await showDatePicker(
           context: context,
           initialDate: date,
@@ -208,9 +220,9 @@ class CopyFilesScreen extends StatelessWidget {
         if (picked != null) {
           onPicked(picked);
         }
-      },
+      } : null,
       child: Opacity(
-        opacity: provider.isProcessing ? 0.5 : 1.0,
+        opacity: enabled ? 1.0 : 0.5,
         child: InputDecorator(
           decoration: InputDecoration(
             labelText: label,

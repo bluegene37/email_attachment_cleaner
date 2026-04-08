@@ -36,6 +36,7 @@ class _IsolateProgress {
 class _IsolateParams {
   final String sourcePath;
   final String destPath;
+  final bool enableDateRange;
   final int fromEpochMs;
   final int toEpochMs;
   final SendPort sendPort;
@@ -43,6 +44,7 @@ class _IsolateParams {
   _IsolateParams({
     required this.sourcePath,
     required this.destPath,
+    required this.enableDateRange,
     required this.fromEpochMs,
     required this.toEpochMs,
     required this.sendPort,
@@ -58,6 +60,14 @@ class _CountState {
   int directoriesScanned = 0;
 }
 
+class _CopyTask {
+  final File source;
+  final String destFilePath;
+
+  _CopyTask(this.source, this.destFilePath);
+}
+
+
 class CopyFilesProvider with ChangeNotifier {
   final Logger _log = Logger('CopyFilesProvider');
   final FileLogger _fileLogger = FileLogger();
@@ -67,6 +77,7 @@ class CopyFilesProvider with ChangeNotifier {
   String? destPath;
 
   // Date range filter (from/to inclusive)
+  bool enableDateRange = false;
   DateTime fromDate = DateTime(2025, 1, 1);
   DateTime toDate = DateTime(2025, 1, 31);
 
@@ -116,6 +127,8 @@ class CopyFilesProvider with ChangeNotifier {
     if (toMs != null) {
       toDate = DateTime.fromMillisecondsSinceEpoch(toMs);
     }
+    
+    enableDateRange = prefs.getBool('copy_enableDateRange') ?? false;
 
     enableTimeWindow = prefs.getBool('copy_enableTimeWindow') ?? false;
     
@@ -144,6 +157,7 @@ class CopyFilesProvider with ChangeNotifier {
     }
     await prefs.setInt('copy_fromDateMs', fromDate.millisecondsSinceEpoch);
     await prefs.setInt('copy_toDateMs', toDate.millisecondsSinceEpoch);
+    await prefs.setBool('copy_enableDateRange', enableDateRange);
 
     await prefs.setBool('copy_enableTimeWindow', enableTimeWindow);
     await prefs.setInt('copy_runFromHour', runFromTime.hour);
@@ -160,6 +174,12 @@ class CopyFilesProvider with ChangeNotifier {
 
   void setDestPath(String? path) {
     destPath = path;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setEnableDateRange(bool val) {
+    enableDateRange = val;
     _saveSettings();
     notifyListeners();
   }
@@ -274,15 +294,52 @@ class CopyFilesProvider with ChangeNotifier {
     }
   }
 
-  /// Manual recursive walk using listSync for maximum performance.
+  static Future<void> _processBatch(
+    List<_CopyTask> batch,
+    _IsolateParams params,
+    _CountState counts,
+  ) async {
+    final futures = batch.map((task) async {
+      try {
+        await task.source.copy(task.destFilePath);
+        counts.filesCopied++;
+
+        if (counts.filesCopied % 10 == 0) {
+          params.sendPort.send(_IsolateProgress(
+            logMessage: 'Copied: ${p.basename(task.source.path)}',
+            status: 'Copying: ${p.basename(task.source.path)}',
+            filesCopied: counts.filesCopied,
+            filesSkipped: counts.filesSkipped,
+            filesAlreadyExist: counts.filesAlreadyExist,
+            errors: counts.errors,
+          ));
+        }
+      } catch (e) {
+        counts.errors++;
+        params.sendPort.send(_IsolateProgress(
+          logMessage: 'Failed to copy ${p.basename(task.source.path)}: $e',
+          errors: counts.errors,
+          filesCopied: counts.filesCopied,
+          filesSkipped: counts.filesSkipped,
+          filesAlreadyExist: counts.filesAlreadyExist,
+        ));
+      }
+    });
+
+    await Future.wait(futures);
+  }
+
+  /// Manual recursive walk using async lists for maximum performance.
   static Future<void> _walkAndCopy(
     Directory dir,
     _IsolateParams params,
     _CountState counts,
+    Set<String> createdDirs,
+    List<_CopyTask> batch,
   ) async {
     List<FileSystemEntity> entities;
     try {
-      entities = dir.listSync(followLinks: false);
+      entities = await dir.list(followLinks: false).toList();
     } catch (e) {
       counts.errors++;
       params.sendPort.send(_IsolateProgress(
@@ -305,55 +362,58 @@ class CopyFilesProvider with ChangeNotifier {
         filesAlreadyExist: counts.filesAlreadyExist,
         errors: counts.errors,
       ));
-      // Yield to the event loop here so Isolate.pause() commands are processed quickly!
-      await Future.delayed(Duration.zero);
     }
 
     final fromDate = DateTime.fromMillisecondsSinceEpoch(params.fromEpochMs);
     final toDate = DateTime.fromMillisecondsSinceEpoch(params.toEpochMs);
 
-    for (final entity in entities) {
-      if (entity is File) {
+    final files = entities.whereType<File>().toList();
+    
+    // Process files in concurrency batches of 50
+    for (var i = 0; i < files.length; i += 50) {
+      final chunk = files.skip(i).take(50);
+      
+      final futures = chunk.map((entity) async {
         try {
-          FileStat stats = entity.statSync();
-          DateTime modified = stats.modified;
+          bool withinDateRange = true;
+          int sourceSize = -1;
 
-          final fileDate = DateTime(modified.year, modified.month, modified.day);
-          final from = DateTime(fromDate.year, fromDate.month, fromDate.day);
-          final to = DateTime(toDate.year, toDate.month, toDate.day);
+          if (params.enableDateRange) {
+            FileStat stats = await entity.stat();
+            sourceSize = stats.size;
+            DateTime modified = stats.modified;
+            
+            final fileDate = DateTime(modified.year, modified.month, modified.day);
+            final from = DateTime(fromDate.year, fromDate.month, fromDate.day);
+            final to = DateTime(toDate.year, toDate.month, toDate.day);
+            if (fileDate.isBefore(from) || fileDate.isAfter(to)) {
+              withinDateRange = false;
+            }
+          }
 
-          if (!fileDate.isBefore(from) && !fileDate.isAfter(to)) {
+          if (withinDateRange) {
             String relativePath = p.relative(entity.parent.path, from: params.sourcePath);
             String destDir = p.join(params.destPath, relativePath);
             String destFilePath = p.join(destDir, p.basename(entity.path));
-
-            // Prevent rewriting if file exists with exact same size to speed up resumes
-            File destFile = File(destFilePath);
+            
             bool shouldCopy = true;
-            if (destFile.existsSync() && destFile.lengthSync() == stats.size) {
+            
+            if (sourceSize == -1) {
+              sourceSize = await entity.length();
+            }
+
+            File destFile = File(destFilePath);
+            FileStat destStat = await destFile.stat();
+            if (destStat.type != FileSystemEntityType.notFound && destStat.size == sourceSize) {
                 shouldCopy = false;
             }
 
             if (shouldCopy) {
-              Directory(destDir).createSync(recursive: true);
-              entity.copySync(destFilePath);
-              counts.filesCopied++;
-
-              if (counts.filesCopied % 10 == 0) {
-                params.sendPort.send(_IsolateProgress(
-                  logMessage: 'Copied: ${p.basename(entity.path)}',
-                  status: 'Copying: ${p.basename(entity.path)}',
-                  filesCopied: counts.filesCopied,
-                  filesSkipped: counts.filesSkipped,
-                  filesAlreadyExist: counts.filesAlreadyExist,
-                  errors: counts.errors,
-                ));
+              if (!createdDirs.contains(destDir)) {
+                createdDirs.add(destDir);
+                await Directory(destDir).create(recursive: true);
               }
-
-              // Yield every 50 files copied
-              if (counts.filesCopied % 50 == 0) {
-                await Future.delayed(Duration.zero);
-              }
+              batch.add(_CopyTask(entity, destFilePath));
             } else {
               counts.filesAlreadyExist++;
             }
@@ -363,20 +423,29 @@ class CopyFilesProvider with ChangeNotifier {
         } catch (e) {
           counts.errors++;
           params.sendPort.send(_IsolateProgress(
-            logMessage: 'Failed to copy ${p.basename(entity.path)}: $e',
+            logMessage: 'Failed to inspect/copy ${p.basename(entity.path)}: $e',
             errors: counts.errors,
             filesCopied: counts.filesCopied,
             filesSkipped: counts.filesSkipped,
             filesAlreadyExist: counts.filesAlreadyExist,
           ));
         }
+      });
+
+      await Future.wait(futures);
+
+      if (batch.length >= 20) {
+         final tasksToRun = List<_CopyTask>.from(batch);
+         batch.clear();
+         await _processBatch(tasksToRun, params, counts);
+         await Future.delayed(Duration.zero);
       }
     }
 
     // Then recurse into subdirectories
     for (final entity in entities) {
       if (entity is Directory) {
-        await _walkAndCopy(entity, params, counts);
+        await _walkAndCopy(entity, params, counts, createdDirs, batch);
       }
     }
   }
@@ -384,6 +453,8 @@ class CopyFilesProvider with ChangeNotifier {
   /// Top-level isolate entry point.
   static Future<void> _copyWorker(_IsolateParams params) async {
     final counts = _CountState();
+    final createdDirs = <String>{};
+    final batch = <_CopyTask>[];
 
     try {
       final sourceDir = Directory(params.sourcePath);
@@ -396,7 +467,13 @@ class CopyFilesProvider with ChangeNotifier {
         return;
       }
 
-      await _walkAndCopy(sourceDir, params, counts);
+      await _walkAndCopy(sourceDir, params, counts, createdDirs, batch);
+      
+      // Process remaining tasks in the final batch
+      if (batch.isNotEmpty) {
+        await _processBatch(batch, params, counts);
+        batch.clear();
+      }
 
       params.sendPort.send(_IsolateProgress(
         logMessage: 'Copy completed successfully.',
@@ -428,6 +505,7 @@ class CopyFilesProvider with ChangeNotifier {
     }
 
     isProcessing = true;
+    currentStatus = 'Scanning...';
     filesCopied = 0;
     filesSkipped = 0;
     errors = 0;
@@ -459,6 +537,7 @@ class CopyFilesProvider with ChangeNotifier {
     final params = _IsolateParams(
       sourcePath: sourcePath!,
       destPath: destPath!,
+      enableDateRange: enableDateRange,
       fromEpochMs: fromDate.millisecondsSinceEpoch,
       toEpochMs: toDate.millisecondsSinceEpoch,
       sendPort: _receivePort!.sendPort,
