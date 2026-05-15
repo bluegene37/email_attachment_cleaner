@@ -197,12 +197,12 @@ class FileProcessProvider with ChangeNotifier {
   }
 
   Future<void> pickSource() async {
-    final path = await getDirectoryPath();
+    final path = await getDirectoryPath(initialDirectory: sourcePath);
     if (path != null) setSourcePath(path);
   }
 
   Future<void> pickDest() async {
-    final path = await getDirectoryPath();
+    final path = await getDirectoryPath(initialDirectory: destPath);
     if (path != null) setDestPath(path);
   }
 

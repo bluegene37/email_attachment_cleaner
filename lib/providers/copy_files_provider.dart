@@ -12,6 +12,7 @@ import '../services/file_logger.dart';
 /// Message sent FROM the background isolate TO the main isolate.
 class _IsolateProgress {
   final String? logMessage;
+  final String? errorMessage;
   final String? status;
   final int filesCopied;
   final int filesSkipped;
@@ -22,6 +23,7 @@ class _IsolateProgress {
 
   _IsolateProgress({
     this.logMessage,
+    this.errorMessage,
     this.status,
     this.filesCopied = 0,
     this.filesSkipped = 0,
@@ -86,6 +88,19 @@ class CopyFilesProvider with ChangeNotifier {
   TimeOfDay runFromTime = const TimeOfDay(hour: 0, minute: 0);
   TimeOfDay runToTime = const TimeOfDay(hour: 6, minute: 0);
 
+  // Run-time days: day-of-week (1=Monday … 7=Sunday).
+  // Checked = apply the run-time window on that day.
+  // Unchecked = run the whole day.
+  Map<int, bool> runDays = {
+    1: false, // Monday
+    2: false, // Tuesday
+    3: false, // Wednesday
+    4: false, // Thursday
+    5: false, // Friday
+    6: false, // Saturday
+    7: false, // Sunday
+  };
+
   bool isProcessing = false;
   List<String> logs = [];
   String currentStatus = 'Idle';
@@ -144,6 +159,11 @@ class CopyFilesProvider with ChangeNotifier {
       runToTime = TimeOfDay(hour: toHour, minute: toMinute);
     }
 
+    // Load run days
+    for (int day = 1; day <= 7; day++) {
+      runDays[day] = prefs.getBool('copy_runDay_$day') ?? false;
+    }
+
     notifyListeners();
   }
 
@@ -164,6 +184,11 @@ class CopyFilesProvider with ChangeNotifier {
     await prefs.setInt('copy_runFromMinute', runFromTime.minute);
     await prefs.setInt('copy_runToHour', runToTime.hour);
     await prefs.setInt('copy_runToMinute', runToTime.minute);
+
+    // Save run days
+    for (int day = 1; day <= 7; day++) {
+      await prefs.setBool('copy_runDay_$day', runDays[day] ?? false);
+    }
   }
 
   void setSourcePath(String? path) {
@@ -219,13 +244,20 @@ class CopyFilesProvider with ChangeNotifier {
     _evaluateSchedule();
   }
 
+  void setRunDay(int day, bool value) {
+    runDays[day] = value;
+    _saveSettings();
+    notifyListeners();
+    _evaluateSchedule();
+  }
+
   Future<void> pickSource() async {
-    final path = await getDirectoryPath();
+    final path = await getDirectoryPath(initialDirectory: sourcePath);
     if (path != null) setSourcePath(path);
   }
 
   Future<void> pickDest() async {
-    final path = await getDirectoryPath();
+    final path = await getDirectoryPath(initialDirectory: destPath);
     if (path != null) setDestPath(path);
   }
 
@@ -256,6 +288,15 @@ class CopyFilesProvider with ChangeNotifier {
 
   bool _isCurrentlyInTimeWindow() {
     if (!enableTimeWindow) return true;
+
+    // Check if today's day-of-week is checked.
+    // If the day is NOT checked, the copy runs the whole day (no time restriction).
+    final todayDow = DateTime.now().weekday; // 1=Mon … 7=Sun
+    if (runDays[todayDow] != true) {
+      return true; // unchecked day → run all day
+    }
+
+    // Day is checked → enforce the time window.
     final now = TimeOfDay.now();
     double nowVal = now.hour + now.minute / 60.0;
     double fromVal = runFromTime.hour + runFromTime.minute / 60.0;
@@ -267,7 +308,7 @@ class CopyFilesProvider with ChangeNotifier {
       // Midnight crossover
       return nowVal >= fromVal || nowVal < toVal;
     } else {
-      // from == to, assume open window for safety or disabled. Let's say false unless exact minute tick.
+      // from == to, assume open window for safety or disabled.
       return false;
     }
   }
@@ -317,7 +358,7 @@ class CopyFilesProvider with ChangeNotifier {
       } catch (e) {
         counts.errors++;
         params.sendPort.send(_IsolateProgress(
-          logMessage: 'Failed to copy ${p.basename(task.source.path)}: $e',
+          errorMessage: 'Failed to copy ${p.basename(task.source.path)}: $e',
           errors: counts.errors,
           filesCopied: counts.filesCopied,
           filesSkipped: counts.filesSkipped,
@@ -343,7 +384,7 @@ class CopyFilesProvider with ChangeNotifier {
     } catch (e) {
       counts.errors++;
       params.sendPort.send(_IsolateProgress(
-        logMessage: 'Cannot access: ${dir.path} ($e)',
+        errorMessage: 'Cannot access: ${dir.path} ($e)',
         errors: counts.errors,
         filesCopied: counts.filesCopied,
         filesSkipped: counts.filesSkipped,
@@ -423,7 +464,7 @@ class CopyFilesProvider with ChangeNotifier {
         } catch (e) {
           counts.errors++;
           params.sendPort.send(_IsolateProgress(
-            logMessage: 'Failed to inspect/copy ${p.basename(entity.path)}: $e',
+            errorMessage: 'Failed to inspect/copy ${p.basename(entity.path)}: $e',
             errors: counts.errors,
             filesCopied: counts.filesCopied,
             filesSkipped: counts.filesSkipped,
@@ -460,7 +501,7 @@ class CopyFilesProvider with ChangeNotifier {
       final sourceDir = Directory(params.sourcePath);
       if (!sourceDir.existsSync()) {
         params.sendPort.send(_IsolateProgress(
-          logMessage: 'Error: Source directory does not exist.',
+          errorMessage: 'Error: Source directory does not exist.',
           done: true,
           errors: 1,
         ));
@@ -568,6 +609,11 @@ class CopyFilesProvider with ChangeNotifier {
 
         if (message.logMessage != null) {
           _addLog(message.logMessage!);
+        }
+
+        if (message.errorMessage != null) {
+          _addLog(message.errorMessage!);
+          await _fileLogger.error('Copy', message.errorMessage!);
         }
 
         if (message.criticalError != null) {

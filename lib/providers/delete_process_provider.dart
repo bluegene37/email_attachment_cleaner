@@ -109,7 +109,7 @@ class DeleteProcessProvider with ChangeNotifier {
   }
 
   Future<void> pickTarget() async {
-    final path = await getDirectoryPath();
+    final path = await getDirectoryPath(initialDirectory: targetPath);
     if (path != null) {
       targetPath = path;
       _saveSettings();

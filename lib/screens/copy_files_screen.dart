@@ -36,33 +36,38 @@ class CopyFilesScreen extends StatelessWidget {
                       path: provider.destPath,
                       onPick: provider.isProcessing ? null : provider.pickDest,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+                    // Date range: checkbox + both pickers in one row
                     Row(
                       children: [
-                        Checkbox(
-                          value: provider.enableDateRange,
-                          onChanged: provider.isProcessing ? null : (val) => provider.setEnableDateRange(val ?? false),
+                        SizedBox(
+                          width: 24, height: 24,
+                          child: Checkbox(
+                            value: provider.enableDateRange,
+                            onChanged: provider.isProcessing ? null : (val) => provider.setEnableDateRange(val ?? false),
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                        const Text('Limit Date Range', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Expanded(
+                        const SizedBox(width: 6),
+                        const Text('Date Range', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 140,
                           child: _buildDatePicker(
                             context,
-                            label: 'From Date',
+                            label: 'From',
                             date: provider.fromDate,
                             enabled: !provider.isProcessing && provider.enableDateRange,
                             onPicked: provider.isProcessing ? (date) {} : (date) => provider.setFromDate(date),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 140,
                           child: _buildDatePicker(
                             context,
-                            label: 'To Date',
+                            label: 'To',
                             date: provider.toDate,
                             enabled: !provider.isProcessing && provider.enableDateRange,
                             onPicked: provider.isProcessing ? (date) {} : (date) => provider.setToDate(date),
@@ -70,16 +75,24 @@ class CopyFilesScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+                    // Run time: checkbox + time pickers + day chips all in one row
                     Row(
                       children: [
-                        Checkbox(
-                          value: provider.enableTimeWindow,
-                          onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
+                        SizedBox(
+                          width: 24, height: 24,
+                          child: Checkbox(
+                            value: provider.enableTimeWindow,
+                            onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                        const Text('Limit Run Time', style: TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(width: 8),
-                        Expanded(
+                        const SizedBox(width: 6),
+                        const Text('Run Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 100,
                           child: _buildTimePicker(
                             context,
                             label: 'From',
@@ -88,8 +101,9 @@ class CopyFilesScreen extends StatelessWidget {
                             onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunFromTime(time),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 100,
                           child: _buildTimePicker(
                             context,
                             label: 'To',
@@ -98,6 +112,30 @@ class CopyFilesScreen extends StatelessWidget {
                             onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunToTime(time),
                           ),
                         ),
+                        if (provider.enableTimeWindow) ...[
+                          const SizedBox(width: 16),
+                          const VerticalDivider(width: 1, thickness: 1),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 4,
+                              runSpacing: 2,
+                              children: [
+                                for (final entry in {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}.entries)
+                                  FilterChip(
+                                    label: Text(entry.value, style: const TextStyle(fontSize: 11)),
+                                    selected: provider.runDays[entry.key] ?? false,
+                                    onSelected: provider.isProcessing
+                                        ? null
+                                        : (val) => provider.setRunDay(entry.key, val),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -106,11 +144,10 @@ class CopyFilesScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // Actions
+            // Actions, Status, and Stats
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (!provider.isProcessing) ...[
+                if (!provider.isProcessing)
                   ElevatedButton.icon(
                     onPressed:
                         (provider.sourcePath != null &&
@@ -121,12 +158,12 @@ class CopyFilesScreen extends StatelessWidget {
                     label: const Text('Start Copying'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 15,
+                        horizontal: 20,
+                        vertical: 12,
                       ),
                     ),
-                  ),
-                ] else
+                  )
+                else
                   ElevatedButton.icon(
                     onPressed: provider.stop,
                     icon: const Icon(Icons.stop),
@@ -135,32 +172,33 @@ class CopyFilesScreen extends StatelessWidget {
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 15,
+                        horizontal: 20,
+                        vertical: 12,
                       ),
                     ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 10),
+                const SizedBox(width: 16),
+                
+                // Progress / Status
+                Expanded(
+                  child: Text(
+                    provider.currentStatus,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
 
-            // Progress / Status
-            Text(
-              provider.currentStatus,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _buildStatCard(
+                // Stats
+                _buildSmallStatCard(
                   'Copied',
                   provider.filesCopied.toString(),
                   Colors.blue,
                   Icons.file_copy,
                 ),
-                _buildStatCard(
+                const SizedBox(width: 8),
+                _buildSmallStatCard(
                   'Errors',
                   provider.errors.toString(),
                   Colors.red,
@@ -227,9 +265,10 @@ class CopyFilesScreen extends StatelessWidget {
           decoration: InputDecoration(
             labelText: label,
             border: const OutlineInputBorder(),
+            isDense: true,
             contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            suffixIcon: const Icon(Icons.calendar_today, size: 18),
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            suffixIcon: const Icon(Icons.calendar_today, size: 16),
           ),
           child: Text(dateFormat.format(date)),
         ),
@@ -262,9 +301,10 @@ class CopyFilesScreen extends StatelessWidget {
           decoration: InputDecoration(
             labelText: label,
             border: const OutlineInputBorder(),
+            isDense: true,
             contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            suffixIcon: const Icon(Icons.access_time, size: 18),
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            suffixIcon: const Icon(Icons.access_time, size: 16),
           ),
           child: Text(time.format(context)),
         ),
@@ -272,38 +312,33 @@ class CopyFilesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(
+  Widget _buildSmallStatCard(
     String title,
     String value,
     Color color,
     IconData icon,
   ) {
-    return Expanded(
-      child: Card(
-        elevation: 2,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: color.withValues(alpha: 0.5)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            children: [
-              Icon(icon, color: color),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-              Text(title, style: TextStyle(color: color)),
-            ],
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            '$title: $value',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
