@@ -74,15 +74,36 @@ class _CopyTask {
 class DirectoryPair {
   String? sourcePath;
   String? destPath;
+  int runOrder;
 
-  DirectoryPair({this.sourcePath, this.destPath});
+  DirectoryPair({this.sourcePath, this.destPath, this.runOrder = 1});
 
-  Map<String, String?> toJson() => {'source': sourcePath, 'dest': destPath};
+  Map<String, dynamic> toJson() => {'source': sourcePath, 'dest': destPath, 'runOrder': runOrder};
 
   factory DirectoryPair.fromJson(Map<String, dynamic> json) =>
-      DirectoryPair(sourcePath: json['source'] as String?, destPath: json['dest'] as String?);
+      DirectoryPair(
+        sourcePath: json['source'] as String?,
+        destPath: json['dest'] as String?,
+        runOrder: (json['runOrder'] as int?) ?? 1,
+      );
 }
 
+/// Tracks an active worker isolate processing one directory pair.
+class _ActiveWorker {
+  final int pairIndex;
+  final Isolate isolate;
+  final ReceivePort receivePort;
+  final StreamSubscription subscription;
+  Capability? pauseCapability;
+  bool isPaused = false;
+
+  _ActiveWorker({
+    required this.pairIndex,
+    required this.isolate,
+    required this.receivePort,
+    required this.subscription,
+  });
+}
 
 class CopyFilesProvider with ChangeNotifier {
   final Logger _log = Logger('CopyFilesProvider');
@@ -95,6 +116,8 @@ class CopyFilesProvider with ChangeNotifier {
   // Multiple directory pairs
   bool useMultipleDirectories = false;
   List<DirectoryPair> directoryPairs = [DirectoryPair()];
+
+
 
   // Date range filter (from/to inclusive)
   bool enableDateRange = false;
@@ -132,21 +155,23 @@ class CopyFilesProvider with ChangeNotifier {
   int filesSkipped = 0;
   int errors = 0;
 
-  Isolate? _workerIsolate;
-  ReceivePort? _receivePort;
-  StreamSubscription? _progressSubscription;
+  // Active worker isolates
+  final List<_ActiveWorker> _activeWorkers = [];
   
   // Pause/Schedule State
-  Capability? _pauseCapability;
   bool isPaused = false;
   Timer? _scheduleTimer;
 
   // Multi-pair processing state
-  List<MapEntry<String, String>> _pairsToProcess = [];
-  int _currentPairIndex = 0;
-  int _accFilesCopied = 0;
-  int _accFilesSkipped = 0;
-  int _accErrors = 0;
+  // Each entry: { 'source': ..., 'dest': ..., 'runOrder': ..., 'origIndex': ... }
+  List<Map<String, dynamic>> _pairsToProcess = [];
+  // Run order groups: sorted list of distinct run order values
+  List<int> _runOrderGroups = [];
+  int _currentGroupIndex = 0;
+  int _pairsCompletedInGroup = 0;
+  int _totalPairsCompleted = 0;
+  // Per-pair accumulated stats
+  final Map<int, List<int>> _pairStats = {}; // pairIndex → [copied, skipped, errors]
 
   CopyFilesProvider() {
     _loadSettings();
@@ -191,6 +216,8 @@ class CopyFilesProvider with ChangeNotifier {
       }
     }
     if (directoryPairs.isEmpty) directoryPairs = [DirectoryPair()];
+
+
 
     enableTimeWindow = prefs.getBool('copy_enableTimeWindow') ?? false;
     
@@ -243,6 +270,8 @@ class CopyFilesProvider with ChangeNotifier {
     await prefs.setBool('copy_useMultiDirs', useMultipleDirectories);
     final pairsJson = jsonEncode(directoryPairs.map((p) => p.toJson()).toList());
     await prefs.setString('copy_directoryPairs', pairsJson);
+
+
   }
 
   void setSourcePath(String? path) {
@@ -407,17 +436,19 @@ class CopyFilesProvider with ChangeNotifier {
     }
   }
 
+  void setPairRunOrder(int index, int order) {
+    if (index >= 0 && index < directoryPairs.length) {
+      directoryPairs[index].runOrder = order.clamp(1, 10);
+      _saveSettings();
+      notifyListeners();
+    }
+  }
+
   void stop() {
-    _workerIsolate?.kill(priority: Isolate.immediate);
-    _workerIsolate = null;
-    _progressSubscription?.cancel();
-    _progressSubscription = null;
-    _receivePort?.close();
-    _receivePort = null;
+    _killAllWorkers();
     _scheduleTimer?.cancel();
     _scheduleTimer = null;
     
-    _pauseCapability = null;
     isPaused = false;
     currentStatus = 'Stopped by user.';
     _addLog('Stopped by user.');
@@ -460,32 +491,41 @@ class CopyFilesProvider with ChangeNotifier {
   }
 
   void _evaluateSchedule() {
-    if (!isProcessing || _workerIsolate == null) return;
+    if (!isProcessing || _activeWorkers.isEmpty) return;
     
     bool inWindow = _isCurrentlyInTimeWindow();
     
     if (inWindow && isPaused) {
       // If quick date filters are active, the dates may be stale after an
-      // overnight pause.  Kill the old isolate and restart with fresh dates.
+      // overnight pause.  Kill the old isolates and restart with fresh dates.
       if (todayOnly || yesterdayOnly) {
         _addLog('Time window reached. Restarting with updated dates...');
-        _killWorker();
+        _killAllWorkers();
         isPaused = false;
-        _pauseCapability = null;
-        // startProcessing will call _applyQuickDateFilter() and spawn a new isolate.
+        // startProcessing will call _applyQuickDateFilter() and spawn new isolates.
         startProcessing();
         return;
       }
 
-      if (_pauseCapability != null) {
-        _workerIsolate?.resume(_pauseCapability!);
-        isPaused = false;
-        currentStatus = 'Copying...';
-        _addLog('Time window reached. Resuming copy...');
-        notifyListeners();
+      // Resume all paused workers
+      for (final w in _activeWorkers) {
+        if (w.isPaused && w.pauseCapability != null) {
+          w.isolate.resume(w.pauseCapability!);
+          w.isPaused = false;
+        }
       }
+      isPaused = false;
+      currentStatus = 'Copying...';
+      _addLog('Time window reached. Resuming copy...');
+      notifyListeners();
     } else if (!inWindow && !isPaused) {
-      _pauseCapability = _workerIsolate?.pause();
+      // Pause all active workers
+      for (final w in _activeWorkers) {
+        if (!w.isPaused) {
+          w.pauseCapability = w.isolate.pause();
+          w.isPaused = true;
+        }
+      }
       isPaused = true;
       currentStatus = 'Waiting for time window...';
       _addLog('Outside allowed time window. Paused until next run window.');
@@ -493,15 +533,15 @@ class CopyFilesProvider with ChangeNotifier {
     }
   }
 
-  /// Kills the worker isolate and cleans up its resources without touching
-  /// the outer processing state (isProcessing, scheduleTimer, etc.).
-  void _killWorker() {
-    _workerIsolate?.kill(priority: Isolate.immediate);
-    _workerIsolate = null;
-    _progressSubscription?.cancel();
-    _progressSubscription = null;
-    _receivePort?.close();
-    _receivePort = null;
+  /// Kills all active worker isolates and cleans up their resources without
+  /// touching the outer processing state (isProcessing, scheduleTimer, etc.).
+  void _killAllWorkers() {
+    for (final w in _activeWorkers) {
+      w.isolate.kill(priority: Isolate.immediate);
+      w.subscription.cancel();
+      w.receivePort.close();
+    }
+    _activeWorkers.clear();
   }
 
   static Future<void> _processBatch(
@@ -714,9 +754,15 @@ class CopyFilesProvider with ChangeNotifier {
     // Build list of pairs to process
     _pairsToProcess = [];
     if (useMultipleDirectories) {
-      for (final pair in directoryPairs) {
+      for (int i = 0; i < directoryPairs.length; i++) {
+        final pair = directoryPairs[i];
         if (pair.sourcePath != null && pair.destPath != null) {
-          _pairsToProcess.add(MapEntry(pair.sourcePath!, pair.destPath!));
+          _pairsToProcess.add({
+            'source': pair.sourcePath!,
+            'dest': pair.destPath!,
+            'runOrder': pair.runOrder,
+            'origIndex': i,
+          });
         }
       }
     } else {
@@ -725,7 +771,12 @@ class CopyFilesProvider with ChangeNotifier {
         await _fileLogger.error('Copy', 'Source or Destination not selected.');
         return;
       }
-      _pairsToProcess.add(MapEntry(sourcePath!, destPath!));
+      _pairsToProcess.add({
+        'source': sourcePath!,
+        'dest': destPath!,
+        'runOrder': 1,
+        'origIndex': 0,
+      });
     }
 
     if (_pairsToProcess.isEmpty) {
@@ -733,10 +784,13 @@ class CopyFilesProvider with ChangeNotifier {
       return;
     }
 
-    _currentPairIndex = 0;
-    _accFilesCopied = 0;
-    _accFilesSkipped = 0;
-    _accErrors = 0;
+    // Build sorted run order groups
+    final orderSet = _pairsToProcess.map((p) => p['runOrder'] as int).toSet().toList()..sort();
+    _runOrderGroups = orderSet;
+    _currentGroupIndex = 0;
+    _pairsCompletedInGroup = 0;
+    _totalPairsCompleted = 0;
+    _pairStats.clear();
 
     isProcessing = true;
     currentStatus = 'Scanning...';
@@ -744,11 +798,10 @@ class CopyFilesProvider with ChangeNotifier {
     filesSkipped = 0;
     errors = 0;
     isPaused = false;
-    _pauseCapability = null;
     notifyListeners();
 
     final dateFormat = DateFormat('dd/MM/yyyy');
-    _addLog('Starting copy process... (${_pairsToProcess.length} pair(s))');
+    _addLog('Starting copy process... (${_pairsToProcess.length} pair(s), ${_runOrderGroups.length} group(s))');
     if (enableDateRange) {
       _addLog('Date range: ${dateFormat.format(fromDate)} — ${dateFormat.format(toDate)}');
     }
@@ -760,8 +813,8 @@ class CopyFilesProvider with ChangeNotifier {
 
     await _fileLogger.logRunStart(
       operation: 'Copy',
-      sourcePath: _pairsToProcess.first.key,
-      destPath: _pairsToProcess.first.value,
+      sourcePath: _pairsToProcess.first['source'] as String,
+      destPath: _pairsToProcess.first['dest'] as String,
     );
 
     // Setup periodic schedule evaluation
@@ -770,76 +823,134 @@ class CopyFilesProvider with ChangeNotifier {
       _evaluateSchedule();
     });
 
-    await _startCurrentPair();
+    // Start the first run order group
+    await _startCurrentGroup();
   }
 
-  /// Spawns an isolate for the current pair and listens for progress.
-  /// When done, advances to the next pair or finishes.
-  Future<void> _startCurrentPair() async {
-    final pair = _pairsToProcess[_currentPairIndex];
-    _addLog('--- Pair ${_currentPairIndex + 1}/${_pairsToProcess.length}: ${pair.key} → ${pair.value} ---');
-    currentStatus = 'Pair ${_currentPairIndex + 1}: Scanning...';
+  /// Recomputes the aggregate stats from all per-pair stats.
+  void _recalcStats() {
+    int totalCopied = 0, totalSkipped = 0, totalErrors = 0;
+    for (final stats in _pairStats.values) {
+      totalCopied += stats[0];
+      totalSkipped += stats[1];
+      totalErrors += stats[2];
+    }
+    filesCopied = totalCopied;
+    filesSkipped = totalSkipped;
+    errors = totalErrors;
+  }
+
+  /// Starts all pairs belonging to the current run order group simultaneously.
+  Future<void> _startCurrentGroup() async {
+    if (_currentGroupIndex >= _runOrderGroups.length) return;
+    final currentOrder = _runOrderGroups[_currentGroupIndex];
+    final groupPairs = <int>[]; // indices into _pairsToProcess
+    for (int i = 0; i < _pairsToProcess.length; i++) {
+      if (_pairsToProcess[i]['runOrder'] == currentOrder) {
+        groupPairs.add(i);
+      }
+    }
+    _pairsCompletedInGroup = 0;
+    _addLog('=== Starting Run Order $currentOrder (${groupPairs.length} pair(s)) ===');
+    currentStatus = 'Run Order $currentOrder: Starting...';
     notifyListeners();
 
-    _receivePort = ReceivePort();
+    for (final idx in groupPairs) {
+      await _startWorkerForPair(idx);
+    }
+  }
+
+  /// Spawns an isolate for the given pair index and listens for progress.
+  /// When done, checks if the current group is complete to start the next.
+  Future<void> _startWorkerForPair(int pairIndex) async {
+    final pairData = _pairsToProcess[pairIndex];
+    final source = pairData['source'] as String;
+    final dest = pairData['dest'] as String;
+    final origIdx = pairData['origIndex'] as int;
+    final runOrder = pairData['runOrder'] as int;
+    _addLog('--- Pair ${origIdx + 1} (Order $runOrder): $source → $dest ---');
+    if (_activeWorkers.isEmpty) {
+      currentStatus = 'Pair ${origIdx + 1}: Scanning...';
+    } else {
+      currentStatus = 'Running ${_activeWorkers.length + 1} pair(s) (Order $runOrder)...';
+    }
+    _pairStats[pairIndex] = [0, 0, 0]; // [copied, skipped, errors]
+    notifyListeners();
+
+    final receivePort = ReceivePort();
 
     final params = _IsolateParams(
-      sourcePath: pair.key,
-      destPath: pair.value,
+      sourcePath: source,
+      destPath: dest,
       enableDateRange: enableDateRange,
       fromEpochMs: fromDate.millisecondsSinceEpoch,
       toEpochMs: toDate.millisecondsSinceEpoch,
-      sendPort: _receivePort!.sendPort,
+      sendPort: receivePort.sendPort,
     );
 
-    _workerIsolate = await Isolate.spawn(_copyWorker, params);
-    _evaluateSchedule();
+    final isolate = await Isolate.spawn(_copyWorker, params);
 
-    _progressSubscription = _receivePort!.listen((message) async {
+    late final _ActiveWorker worker;
+    final subscription = receivePort.listen((message) async {
       if (message is _IsolateProgress) {
-        // Update stats (accumulated + current pair)
-        filesCopied = _accFilesCopied + message.filesCopied;
-        filesSkipped = _accFilesSkipped + message.filesSkipped;
-        errors = _accErrors + message.errors;
+        // Update this pair's running stats
+        _pairStats[pairIndex] = [
+          message.filesCopied,
+          message.filesSkipped,
+          message.errors,
+        ];
+        _recalcStats();
 
         if (message.status != null && !isPaused) {
-          currentStatus = 'Pair ${_currentPairIndex + 1}: ${message.status!}';
+          if (_activeWorkers.length == 1) {
+            currentStatus = 'P${origIdx + 1}: ${message.status!}';
+          } else {
+            currentStatus = '${_activeWorkers.length} pairs (Order $runOrder) – P${origIdx + 1}: ${message.status!}';
+          }
         }
 
         if (message.logMessage != null) {
-          _addLog(message.logMessage!);
+          _addLog('[P${origIdx + 1}] ${message.logMessage!}');
         }
 
         if (message.errorMessage != null) {
-          _addLog(message.errorMessage!);
+          _addLog('[P${origIdx + 1}] ${message.errorMessage!}');
           await _fileLogger.error('Copy', message.errorMessage!);
         }
 
         if (message.criticalError != null) {
-          _log.severe('Isolate critical error: ${message.criticalError}');
+          _log.severe('Isolate critical error (pair ${origIdx + 1}): ${message.criticalError}');
           await _fileLogger.error(
-              'Copy', 'Critical Error: ${message.criticalError}');
+              'Copy', 'Critical Error (pair ${origIdx + 1}): ${message.criticalError}');
         }
 
         if (message.done) {
-          // Accumulate this pair's stats
-          _accFilesCopied += message.filesCopied;
-          _accFilesSkipped += message.filesSkipped;
-          _accErrors += message.errors;
-          filesCopied = _accFilesCopied;
-          filesSkipped = _accFilesSkipped;
-          errors = _accErrors;
+          _addLog('[P${origIdx + 1}] Done: ${message.filesCopied} copied, ${message.filesAlreadyExist} exist, ${message.filesSkipped} skipped, ${message.errors} errors');
 
-          _addLog('Pair ${_currentPairIndex + 1} done: ${message.filesCopied} copied, ${message.filesAlreadyExist} exist, ${message.filesSkipped} skipped, ${message.errors} errors');
+          // Clean up this worker
+          worker.isolate.kill(priority: Isolate.immediate);
+          worker.subscription.cancel();
+          worker.receivePort.close();
+          _activeWorkers.remove(worker);
+          _totalPairsCompleted++;
+          _pairsCompletedInGroup++;
 
-          _killWorker();
-          _currentPairIndex++;
+          _recalcStats();
 
-          if (_currentPairIndex < _pairsToProcess.length) {
-            // Start next pair
-            await _startCurrentPair();
-          } else {
-            // All pairs finished
+          // Check if all pairs in the current group are done
+          final currentOrder = _runOrderGroups[_currentGroupIndex];
+          final groupSize = _pairsToProcess.where((p) => p['runOrder'] == currentOrder).length;
+          if (_pairsCompletedInGroup >= groupSize) {
+            _addLog('=== Run Order $currentOrder complete ===');
+            _currentGroupIndex++;
+            if (_currentGroupIndex < _runOrderGroups.length) {
+              // Start next group
+              await _startCurrentGroup();
+            }
+          }
+
+          // Check if ALL pairs are finished
+          if (_totalPairsCompleted >= _pairsToProcess.length) {
             _addLog('All ${_pairsToProcess.length} pair(s) completed. Total: $filesCopied copied, $errors errors.');
 
             await _fileLogger.logRunEnd(
@@ -859,5 +970,14 @@ class CopyFilesProvider with ChangeNotifier {
         notifyListeners();
       }
     });
+
+    worker = _ActiveWorker(
+      pairIndex: pairIndex,
+      isolate: isolate,
+      receivePort: receivePort,
+      subscription: subscription,
+    );
+    _activeWorkers.add(worker);
+    _evaluateSchedule();
   }
 }

@@ -56,48 +56,29 @@ class CopyFilesScreen extends StatelessWidget {
                         onPick: provider.isProcessing ? null : provider.pickDest,
                       ),
                     ] else ...[
-                      // Multi-pair mode
-                      for (int i = 0; i < provider.directoryPairs.length; i++) ...[
-                        Row(
-                          children: [
-                            Text('Pair ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                            const Spacer(),
-                            if (provider.directoryPairs.length > 1 && !provider.isProcessing)
-                              SizedBox(
-                                width: 28, height: 28,
-                                child: IconButton(
-                                  icon: const Icon(Icons.close, size: 16, color: Colors.red),
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () => provider.removeDirectoryPair(i),
-                                ),
-                              ),
-                          ],
-                        ),
-                        _buildPathRow(
-                          context,
-                          label: 'Source',
-                          path: provider.directoryPairs[i].sourcePath,
-                          onPick: provider.isProcessing ? null : () => provider.pickPairSource(i),
-                        ),
-                        const SizedBox(height: 4),
-                        _buildPathRow(
-                          context,
-                          label: 'Dest',
-                          path: provider.directoryPairs[i].destPath,
-                          onPick: provider.isProcessing ? null : () => provider.pickPairDest(i),
-                        ),
-                        if (i < provider.directoryPairs.length - 1)
-                          const Divider(height: 12),
-                      ],
-                      if (!provider.isProcessing)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add Pair', style: TextStyle(fontSize: 13)),
-                            onPressed: provider.addDirectoryPair,
+                      // Multi-pair mode – compact summary with popup editor
+                      Row(
+                        children: [
+                          Icon(Icons.folder_copy, size: 18, color: Colors.grey.shade600),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${provider.directoryPairs.length} pair${provider.directoryPairs.length == 1 ? '' : 's'} configured',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: provider.isProcessing
+                                ? null
+                                : () => _showDirectoryPairsDialog(context, provider),
+                            icon: const Icon(Icons.edit, size: 16),
+                            label: const Text('Edit Pairs', style: TextStyle(fontSize: 13)),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                     const SizedBox(height: 8),
                     // Date range: checkbox + pickers + Today/Yesterday shortcuts
@@ -427,6 +408,116 @@ class CopyFilesScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showDirectoryPairsDialog(BuildContext context, CopyFilesProvider provider) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.folder_copy, size: 22),
+                  const SizedBox(width: 8),
+                  const Text('Directory Pairs', style: TextStyle(fontSize: 18)),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Pair', style: TextStyle(fontSize: 13)),
+                    onPressed: () {
+                      provider.addDirectoryPair();
+                      setDialogState(() {});
+                    },
+                  ),
+                ],
+              ),
+              contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.7,
+                height: MediaQuery.of(context).size.height * 0.5,
+                child: ListView.separated(
+                  itemCount: provider.directoryPairs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 16),
+                  itemBuilder: (context, i) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Pair ${i + 1}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text('Run Order:', style: TextStyle(fontSize: 12)),
+                            const SizedBox(width: 4),
+                            SizedBox(
+                              width: 52,
+                              height: 28,
+                              child: DropdownButton<int>(
+                                value: provider.directoryPairs[i].runOrder,
+                                isDense: true,
+                                underline: Container(height: 1, color: Colors.grey.shade400),
+                                items: List.generate(10, (n) => n + 1)
+                                    .map((v) => DropdownMenuItem(value: v, child: Text('$v', style: const TextStyle(fontSize: 13))))
+                                    .toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    provider.setPairRunOrder(i, val);
+                                    setDialogState(() {});
+                                  }
+                                },
+                              ),
+                            ),
+                            const Spacer(),
+                            if (provider.directoryPairs.length > 1)
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                tooltip: 'Remove pair',
+                                onPressed: () {
+                                  provider.removeDirectoryPair(i);
+                                  setDialogState(() {});
+                                },
+                              ),
+                          ],
+                        ),
+                        _buildPathRow(
+                          dialogContext,
+                          label: 'Source',
+                          path: provider.directoryPairs[i].sourcePath,
+                          onPick: () async {
+                            await provider.pickPairSource(i);
+                            setDialogState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 4),
+                        _buildPathRow(
+                          dialogContext,
+                          label: 'Dest',
+                          path: provider.directoryPairs[i].destPath,
+                          onPick: () async {
+                            await provider.pickPairDest(i);
+                            setDialogState(() {});
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
