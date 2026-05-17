@@ -2,13 +2,18 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 
 /// Centralized file logger that writes logs to C:\temp\file transfer\
-/// Log files are named by date (e.g., 2026-04-07.log).
+/// Log files are named by the run start date-time (e.g., 2026-04-07_14-30-00_Copy.log).
+/// Each run gets its own log file, even if a run spans multiple days.
 class FileLogger {
   static final FileLogger _instance = FileLogger._internal();
   factory FileLogger() => _instance;
   FileLogger._internal();
 
   static const String _logDirectory = r'C:\temp\file transfer';
+
+  /// Tracks the log file for each active operation (keyed by operation/source name).
+  /// Set when logRunStart is called, cleared when logRunEnd is called.
+  final Map<String, File> _activeRunFiles = {};
 
   /// Ensures the log directory exists.
   Future<void> _ensureDirectory() async {
@@ -18,12 +23,23 @@ class FileLogger {
     }
   }
 
-  /// Gets the log file for today's date and the given operation source.
+  /// Gets the log file for the given operation source.
+  /// If a run is active (started via logRunStart), uses that run's file.
+  /// Otherwise, creates a new file based on the current date-time.
   File _getLogFile(String source) {
-    final dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    if (_activeRunFiles.containsKey(source)) {
+      return _activeRunFiles[source]!;
+    }
+    // Fallback for logs outside of a run (shouldn't normally happen)
+    return _createRunFile(source);
+  }
+
+  /// Creates a new log file named with the current date-time and source.
+  File _createRunFile(String source) {
+    final dateTimeStr = DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
     // Safe-guard source string just in case to be filesystem friendly
     final safeSource = source.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-    return File('$_logDirectory\\${dateStr}_$safeSource.log');
+    return File('$_logDirectory\\${dateTimeStr}_$safeSource.log');
   }
 
   /// Writes a log line with timestamp and level.
@@ -50,6 +66,7 @@ class FileLogger {
   }
 
   /// Log the start of a run with operation details.
+  /// Creates a new log file for this run, named with the current date-time.
   Future<void> logRunStart({
     required String operation,
     String? sourcePath,
@@ -58,6 +75,9 @@ class FileLogger {
     int? year,
     List<String>? months,
   }) async {
+    // Create a new log file for this run
+    _activeRunFiles[operation] = _createRunFile(operation);
+
     await info(operation, '========== RUN STARTED ==========');
     if (sourcePath != null) await info(operation, 'Source: $sourcePath');
     if (destPath != null) await info(operation, 'Destination: $destPath');
@@ -86,5 +106,8 @@ class FileLogger {
       await info(operation, 'Status: COMPLETED SUCCESSFULLY');
     }
     await info(operation, '========== RUN ENDED ============');
+
+    // Clear the active run file so the next run gets a fresh file
+    _activeRunFiles.remove(operation);
   }
 }

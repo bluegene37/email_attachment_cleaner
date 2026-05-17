@@ -269,8 +269,11 @@ class CopyFilesScreen extends StatelessWidget {
               children: [
                 if (!provider.isProcessing)
                   ElevatedButton.icon(
-                    onPressed:
-                        (provider.sourcePath != null &&
+                    onPressed: provider.useMultipleDirectories
+                        ? (provider.directoryPairs.any((p) => p.sourcePath != null && p.destPath != null)
+                            ? provider.startProcessing
+                            : null)
+                        : (provider.sourcePath != null &&
                             provider.destPath != null)
                         ? provider.startProcessing
                         : null,

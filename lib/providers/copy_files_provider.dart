@@ -500,13 +500,13 @@ class CopyFilesProvider with ChangeNotifier {
       // Midnight crossover
       return nowVal >= fromVal || nowVal < toVal;
     } else {
-      // from == to, assume open window for safety or disabled.
-      return false;
+      // from == to → treat as no restriction (run freely).
+      return true;
     }
   }
 
   void _evaluateSchedule() {
-    if (!isProcessing || _activeWorkers.isEmpty) return;
+    if (!isProcessing) return;
     
     bool inWindow = _isCurrentlyInTimeWindow();
     
@@ -522,6 +522,17 @@ class CopyFilesProvider with ChangeNotifier {
         return;
       }
 
+      if (_activeWorkers.isEmpty) {
+        // Workers haven't been spawned yet (started outside the time window).
+        // Now that we're inside the window, spawn them.
+        isPaused = false;
+        currentStatus = 'Copying...';
+        _addLog('Time window reached. Starting copy...');
+        notifyListeners();
+        _startCurrentGroup();
+        return;
+      }
+
       // Resume all paused workers
       for (final w in _activeWorkers) {
         if (w.isPaused && w.pauseCapability != null) {
@@ -534,6 +545,7 @@ class CopyFilesProvider with ChangeNotifier {
       _addLog('Time window reached. Resuming copy...');
       notifyListeners();
     } else if (!inWindow && !isPaused) {
+      if (_activeWorkers.isEmpty) return; // Nothing to pause yet
       // Pause all active workers
       for (final w in _activeWorkers) {
         if (!w.isPaused) {
@@ -871,6 +883,17 @@ class CopyFilesProvider with ChangeNotifier {
       _evaluateSchedule();
     });
 
+    // Check if we're inside the time window before spawning workers.
+    // If outside, set paused and wait — the periodic timer will start
+    // workers when the window opens.
+    if (!_isCurrentlyInTimeWindow()) {
+      isPaused = true;
+      currentStatus = 'Waiting for time window...';
+      _addLog('Outside allowed time window. Waiting to start...');
+      notifyListeners();
+      return;
+    }
+
     // Start the first run order group
     await _startCurrentGroup();
   }
@@ -1034,6 +1057,14 @@ class CopyFilesProvider with ChangeNotifier {
       subscription: subscription,
     );
     _activeWorkers.add(worker);
-    _evaluateSchedule();
+
+    // If the provider is already in paused state (e.g., a previous worker in
+    // this group triggered the pause), immediately pause this new worker too.
+    if (isPaused) {
+      worker.pauseCapability = worker.isolate.pause();
+      worker.isPaused = true;
+    } else {
+      _evaluateSchedule();
+    }
   }
 }

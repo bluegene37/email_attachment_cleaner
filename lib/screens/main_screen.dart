@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'delete_screen.dart';
 import 'copy_files_screen.dart';
+import 'count_files_screen.dart';
 
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
@@ -78,6 +79,30 @@ class MainScreen extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red.shade100,
                   foregroundColor: Colors.red.shade900,
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: 250,
+              height: 60,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CountFilesScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.format_list_numbered, size: 28),
+                label: const Text(
+                  'Count Files',
+                  style: TextStyle(fontSize: 18),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade100,
+                  foregroundColor: Colors.teal.shade900,
                 ),
               ),
             ),
