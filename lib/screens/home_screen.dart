@@ -12,13 +12,13 @@ class TransferScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Files Utility')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         child: Column(
           children: [
             // Config Section
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -28,14 +28,14 @@ class TransferScreen extends StatelessWidget {
                       path: provider.sourcePath,
                       onPick: provider.pickSource,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     _buildPathRow(
                       context,
                       label: 'Destination',
                       path: provider.destPath,
                       onPick: provider.pickDest,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -113,15 +113,127 @@ class TransferScreen extends StatelessWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    // Run Time row
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 24, height: 24,
+                          child: Checkbox(
+                            value: provider.enableTimeWindow,
+                            onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text('Run Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 100,
+                          child: _buildTimePicker(
+                            context,
+                            label: 'From',
+                            time: provider.runFromTime,
+                            enabled: !provider.isProcessing && provider.enableTimeWindow,
+                            onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunFromTime(time),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 100,
+                          child: _buildTimePicker(
+                            context,
+                            label: 'To',
+                            time: provider.runToTime,
+                            enabled: !provider.isProcessing && provider.enableTimeWindow,
+                            onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunToTime(time),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const VerticalDivider(width: 1, thickness: 1),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 4,
+                            runSpacing: 2,
+                            children: [
+                              for (final entry in {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}.entries)
+                                FilterChip(
+                                  label: Text(entry.value, style: const TextStyle(fontSize: 11)),
+                                  selected: provider.runDays[entry.key] ?? false,
+                                  onSelected: provider.isProcessing
+                                      ? null
+                                      : (val) => provider.setRunDay(entry.key, val),
+                                  visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // When Complete row
+                    Row(
+                      children: [
+                        const SizedBox(width: 30),
+                        const Text('When Complete', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(width: 12),
+                        ToggleButtons(
+                          isSelected: [
+                            provider.onCompletionAction == 'pause',
+                            provider.onCompletionAction == 'stop',
+                          ],
+                          onPressed: provider.isProcessing ? null : (index) {
+                            provider.setOnCompletionAction(index == 0 ? 'pause' : 'stop');
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          constraints: const BoxConstraints(minHeight: 30, minWidth: 80),
+                          textStyle: const TextStyle(fontSize: 12),
+                          children: const [
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.pause_circle_outline, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Pause'),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.stop_circle_outlined, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Stop'),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          provider.onCompletionAction == 'pause'
+                              ? 'Will re-run at the next start time'
+                              : 'Will stop after completion',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
-            // Actions
+            // Actions, Status, and Stats – all on one compact row
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (!provider.isProcessing) ...[
                   ElevatedButton.icon(
@@ -130,16 +242,16 @@ class TransferScreen extends StatelessWidget {
                             provider.destPath != null)
                         ? provider.startProcessing
                         : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Processing'),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('Start'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 15,
+                        horizontal: 16,
+                        vertical: 10,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: () {
                       showDialog(
@@ -165,58 +277,47 @@ class TransferScreen extends StatelessWidget {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.refresh),
+                    icon: const Icon(Icons.refresh, size: 18),
                     label: const Text('Clear Progress'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 15,
+                        horizontal: 12,
+                        vertical: 10,
                       ),
                     ),
                   ),
                 ] else
                   ElevatedButton.icon(
                     onPressed: provider.stop,
-                    icon: const Icon(Icons.stop),
+                    icon: const Icon(Icons.stop, size: 18),
                     label: const Text('Stop'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 15,
+                        horizontal: 20,
+                        vertical: 10,
                       ),
                     ),
                   ),
+                const SizedBox(width: 16),
+                // Status
+                Expanded(
+                  child: Text(
+                    provider.currentStatus,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Stats as compact inline badges
+                _buildSmallStatBadge('Moved', provider.filesMoved.toString(), Colors.green, Icons.check_circle),
+                const SizedBox(width: 8),
+                _buildSmallStatBadge('Errors', provider.errors.toString(), Colors.red, Icons.error),
               ],
             ),
-            const SizedBox(height: 10),
-
-            // Progress / Status
-            Text(
-              provider.currentStatus,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _buildStatCard(
-                  'Moved',
-                  provider.filesMoved.toString(),
-                  Colors.green,
-                  Icons.check_circle,
-                ),
-                _buildStatCard(
-                  'Errors',
-                  provider.errors.toString(),
-                  Colors.red,
-                  Icons.error,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
 
             // Logs
             Expanded(
@@ -249,38 +350,33 @@ class TransferScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(
+  Widget _buildSmallStatBadge(
     String title,
     String value,
     Color color,
     IconData icon,
   ) {
-    return Expanded(
-      child: Card(
-        elevation: 2,
-        color: color.withOpacity(0.1),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: color.withOpacity(0.5)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            children: [
-              Icon(icon, color: color),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-              Text(title, style: TextStyle(color: color)),
-            ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            '$title: $value',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -319,6 +415,42 @@ class TransferScreen extends StatelessWidget {
         const SizedBox(width: 8),
         ElevatedButton(onPressed: onPick, child: const Text('Browse')),
       ],
+    );
+  }
+
+  Widget _buildTimePicker(
+    BuildContext context, {
+    required String label,
+    required TimeOfDay time,
+    required bool enabled,
+    required ValueChanged<TimeOfDay> onPicked,
+  }) {
+    return InkWell(
+      onTap: enabled
+          ? () async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: time,
+              );
+              if (picked != null) {
+                onPicked(picked);
+              }
+            }
+          : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.5,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            suffixIcon: const Icon(Icons.access_time, size: 16),
+          ),
+          child: Text(time.format(context)),
+        ),
+      ),
     );
   }
 }
