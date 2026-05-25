@@ -35,6 +35,7 @@ class DeleteScreen extends StatelessWidget {
                             label: 'Target Folder',
                             path: provider.targetPath,
                             onPick: provider.pickTarget,
+                            onChanged: provider.setTargetPath,
                           ),
                           const SizedBox(height: 10),
                           Row(

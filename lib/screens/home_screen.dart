@@ -35,12 +35,14 @@ class TransferScreen extends StatelessWidget {
                             label: 'Source',
                             path: provider.sourcePath,
                             onPick: provider.pickSource,
+                            onChanged: provider.setSourcePath,
                           ),
                           const SizedBox(height: 8),
                           PathRow(
                             label: 'Destination',
                             path: provider.destPath,
                             onPick: provider.pickDest,
+                            onChanged: provider.setDestPath,
                           ),
                           const SizedBox(height: 8),
                           Row(

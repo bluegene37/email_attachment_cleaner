@@ -5,8 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
-import '../services/file_logger.dart';
+import '../services/history_service.dart';
+import '../services/local_db_service.dart';
 import '../services/history_service.dart';
 import '../models/run_record.dart';
 
@@ -56,10 +56,10 @@ class DeleteProcessProvider with ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    targetPath = prefs.getString('delete_targetPath');
-    selectedYear = prefs.getInt('delete_selectedYear') ?? 2025;
-    final savedMonths = prefs.getStringList('delete_validMonths');
+    final db = LocalDbService();
+    targetPath = db.getString('delete_targetPath');
+    selectedYear = db.getInt('delete_selectedYear') ?? 2025;
+    final savedMonths = db.getStringList('delete_validMonths');
     if (savedMonths != null && savedMonths.isNotEmpty) {
       validMonths = savedMonths;
     }
@@ -67,12 +67,12 @@ class DeleteProcessProvider with ChangeNotifier {
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final db = LocalDbService();
     if (targetPath != null) {
-      await prefs.setString('delete_targetPath', targetPath!);
+      await db.setString('delete_targetPath', targetPath!);
     }
-    await prefs.setInt('delete_selectedYear', selectedYear);
-    await prefs.setStringList('delete_validMonths', validMonths);
+    await db.setInt('delete_selectedYear', selectedYear);
+    await db.setStringList('delete_validMonths', validMonths);
   }
 
   void setYear(int year) {
@@ -114,11 +114,15 @@ class DeleteProcessProvider with ChangeNotifier {
   Future<void> pickTarget() async {
     final path = await getDirectoryPath(initialDirectory: targetPath);
     if (path != null) {
-      targetPath = path;
-      _saveSettings();
+      setTargetPath(path);
       _addLog('✓ Target selected: $targetPath');
-      notifyListeners();
     }
+  }
+
+  void setTargetPath(String path) {
+    targetPath = path;
+    _saveSettings();
+    notifyListeners();
   }
 
   void stop() {

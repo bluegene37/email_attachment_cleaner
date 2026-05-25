@@ -302,18 +302,46 @@ class StatBadge extends StatelessWidget {
   }
 }
 
-/// Path selector row used across all screens.
-class PathRow extends StatelessWidget {
+class PathRow extends StatefulWidget {
   final String label;
   final String? path;
   final VoidCallback? onPick;
+  final ValueChanged<String>? onChanged;
 
   const PathRow({
     super.key,
     required this.label,
     this.path,
     this.onPick,
+    this.onChanged,
   });
+
+  @override
+  State<PathRow> createState() => _PathRowState();
+}
+
+class _PathRowState extends State<PathRow> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.path ?? '');
+  }
+
+  @override
+  void didUpdateWidget(PathRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.path != oldWidget.path && widget.path != _controller.text) {
+      _controller.text = widget.path ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -322,7 +350,7 @@ class PathRow extends StatelessWidget {
         SizedBox(
           width: 100,
           child: Text(
-            '$label:',
+            '${widget.label}:',
             style: const TextStyle(
               fontWeight: FontWeight.w600,
               color: AppColors.textSecondary,
@@ -331,22 +359,22 @@ class PathRow extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: AppDecorations.pathField,
-            child: Text(
-              path ?? 'Not Selected',
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: path == null ? AppColors.textMuted : AppColors.textPrimary,
-                fontSize: 13,
-              ),
+          child: TextField(
+            controller: _controller,
+            onChanged: widget.onChanged,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+            ),
+            decoration: const InputDecoration(
+              hintText: 'Not Selected',
+              hintStyle: TextStyle(color: AppColors.textMuted),
             ),
           ),
         ),
         const SizedBox(width: 8),
         ElevatedButton(
-          onPressed: onPick,
+          onPressed: widget.onPick,
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           ),

@@ -7,8 +7,8 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import '../services/file_logger.dart';
 import '../services/history_service.dart';
+import '../services/local_db_service.dart';
 import '../models/run_record.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class FileProcessProvider with ChangeNotifier {
   final Logger _log = Logger('FileProcessProvider');
@@ -132,76 +132,76 @@ class FileProcessProvider with ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    sourcePath = prefs.getString('sourcePath');
-    destPath = prefs.getString('destPath');
-    clientName = prefs.getString('clientName') ?? 'WaterBrothers';
-    selectedYear = prefs.getInt('selectedYear') ?? 2025;
-    final savedMonths = prefs.getStringList('transfer_validMonths');
+    final db = LocalDbService();
+    sourcePath = db.getString('sourcePath');
+    destPath = db.getString('destPath');
+    clientName = db.getString('clientName') ?? 'WaterBrothers';
+    selectedYear = db.getInt('selectedYear') ?? 2025;
+    final savedMonths = db.getStringList('transfer_validMonths');
     if (savedMonths != null && savedMonths.isNotEmpty) {
       validMonths = savedMonths;
     }
-    lastProcessedParent = prefs.getString('lastProcessedParent');
-    lastProcessedChild = prefs.getString('lastProcessedChild');
+    lastProcessedParent = db.getString('lastProcessedParent');
+    lastProcessedChild = db.getString('lastProcessedChild');
 
     // Load time window settings
-    enableTimeWindow = prefs.getBool('transfer_enableTimeWindow') ?? false;
-    final fromHour = prefs.getInt('transfer_runFromHour');
-    final fromMinute = prefs.getInt('transfer_runFromMinute');
+    enableTimeWindow = db.getBool('transfer_enableTimeWindow') ?? false;
+    final fromHour = db.getInt('transfer_runFromHour');
+    final fromMinute = db.getInt('transfer_runFromMinute');
     if (fromHour != null && fromMinute != null) {
       runFromTime = TimeOfDay(hour: fromHour, minute: fromMinute);
     }
-    final toHour = prefs.getInt('transfer_runToHour');
-    final toMinute = prefs.getInt('transfer_runToMinute');
+    final toHour = db.getInt('transfer_runToHour');
+    final toMinute = db.getInt('transfer_runToMinute');
     if (toHour != null && toMinute != null) {
       runToTime = TimeOfDay(hour: toHour, minute: toMinute);
     }
 
     // Load run days
     for (int day = 1; day <= 7; day++) {
-      runDays[day] = prefs.getBool('transfer_runDay_$day') ?? false;
+      runDays[day] = db.getBool('transfer_runDay_$day') ?? false;
     }
 
-    onCompletionAction = prefs.getString('transfer_onCompletionAction') ?? 'pause';
+    onCompletionAction = db.getString('transfer_onCompletionAction') ?? 'pause';
 
     _detectClientName();
     notifyListeners();
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (sourcePath != null) await prefs.setString('sourcePath', sourcePath!);
-    if (destPath != null) await prefs.setString('destPath', destPath!);
-    await prefs.setString('clientName', clientName);
-    await prefs.setInt('selectedYear', selectedYear);
-    await prefs.setStringList('transfer_validMonths', validMonths);
+    final db = LocalDbService();
+    if (sourcePath != null) await db.setString('sourcePath', sourcePath!);
+    if (destPath != null) await db.setString('destPath', destPath!);
+    await db.setString('clientName', clientName);
+    await db.setInt('selectedYear', selectedYear);
+    await db.setStringList('transfer_validMonths', validMonths);
 
-    await prefs.setBool('transfer_enableTimeWindow', enableTimeWindow);
-    await prefs.setInt('transfer_runFromHour', runFromTime.hour);
-    await prefs.setInt('transfer_runFromMinute', runFromTime.minute);
-    await prefs.setInt('transfer_runToHour', runToTime.hour);
-    await prefs.setInt('transfer_runToMinute', runToTime.minute);
+    await db.setBool('transfer_enableTimeWindow', enableTimeWindow);
+    await db.setInt('transfer_runFromHour', runFromTime.hour);
+    await db.setInt('transfer_runFromMinute', runFromTime.minute);
+    await db.setInt('transfer_runToHour', runToTime.hour);
+    await db.setInt('transfer_runToMinute', runToTime.minute);
 
     // Save run days
     for (int day = 1; day <= 7; day++) {
-      await prefs.setBool('transfer_runDay_$day', runDays[day] ?? false);
+      await db.setBool('transfer_runDay_$day', runDays[day] ?? false);
     }
 
-    await prefs.setString('transfer_onCompletionAction', onCompletionAction);
+    await db.setString('transfer_onCompletionAction', onCompletionAction);
   }
 
   Future<void> _saveProgress(String parent, String child) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('lastProcessedParent', parent);
-    await prefs.setString('lastProcessedChild', child);
+    final db = LocalDbService();
+    await db.setString('lastProcessedParent', parent);
+    await db.setString('lastProcessedChild', child);
     lastProcessedParent = parent;
     lastProcessedChild = child;
   }
 
   Future<void> clearProgress() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('lastProcessedParent');
-    await prefs.remove('lastProcessedChild');
+    final db = LocalDbService();
+    await db.remove('lastProcessedParent');
+    await db.remove('lastProcessedChild');
     lastProcessedParent = null;
     lastProcessedChild = null;
     _addLog('✓ Progress cleared.');

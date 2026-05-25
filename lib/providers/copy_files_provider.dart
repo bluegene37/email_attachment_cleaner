@@ -7,8 +7,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../services/file_logger.dart';
+import '../services/history_service.dart';
+import '../services/local_db_service.dart';
 import '../services/history_service.dart';
 import '../models/run_record.dart';
 
@@ -290,29 +291,33 @@ class CopyFilesProvider with ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    sourcePath = prefs.getString('copy_sourcePath');
-    destPath = prefs.getString('copy_destPath');
+    final db = LocalDbService();
+    sourcePath = db.getString('copy_sourcePath');
+    destPath = db.getString('copy_destPath');
 
-    final fromMs = prefs.getInt('copy_fromDateMs');
-    final toMs = prefs.getInt('copy_toDateMs');
-    if (fromMs != null) {
-      fromDate = DateTime.fromMillisecondsSinceEpoch(fromMs);
+    final fDay = db.getInt('copy_fromDate_day');
+    final fMonth = db.getInt('copy_fromDate_month');
+    final fYear = db.getInt('copy_fromDate_year');
+    if (fDay != null && fMonth != null && fYear != null) {
+      fromDate = DateTime(fYear, fMonth, fDay);
     }
-    if (toMs != null) {
-      toDate = DateTime.fromMillisecondsSinceEpoch(toMs);
+    final tDay = db.getInt('copy_toDate_day');
+    final tMonth = db.getInt('copy_toDate_month');
+    final tYear = db.getInt('copy_toDate_year');
+    if (tDay != null && tMonth != null && tYear != null) {
+      toDate = DateTime(tYear, tMonth, tDay);
     }
     
-    enableDateRange = prefs.getBool('copy_enableDateRange') ?? false;
-    todayOnly = prefs.getBool('copy_todayOnly') ?? false;
-    yesterdayOnly = prefs.getBool('copy_yesterdayOnly') ?? false;
+    enableDateRange = db.getBool('copy_enableDateRange') ?? false;
+    todayOnly = db.getBool('copy_todayOnly') ?? false;
+    yesterdayOnly = db.getBool('copy_yesterdayOnly') ?? false;
 
     // Apply quick date filter on load if active
     _applyQuickDateFilter();
 
     // Load multiple directories
-    useMultipleDirectories = prefs.getBool('copy_useMultiDirs') ?? false;
-    final pairsJson = prefs.getString('copy_directoryPairs');
+    useMultipleDirectories = db.getBool('copy_useMultiDirs') ?? false;
+    final pairsJson = db.getString('copy_directoryPairs');
     if (pairsJson != null) {
       try {
         final list = jsonDecode(pairsJson) as List;
@@ -323,63 +328,67 @@ class CopyFilesProvider with ChangeNotifier {
     }
     if (directoryPairs.isEmpty) directoryPairs = [DirectoryPair()];
 
-
-
-    enableTimeWindow = prefs.getBool('copy_enableTimeWindow') ?? false;
+    enableTimeWindow = db.getBool('copy_enableTimeWindow') ?? false;
     
-    final fromHour = prefs.getInt('copy_runFromHour');
-    final fromMinute = prefs.getInt('copy_runFromMinute');
+    final fromHour = db.getInt('copy_runFromHour');
+    final fromMinute = db.getInt('copy_runFromMinute');
     if (fromHour != null && fromMinute != null) {
       runFromTime = TimeOfDay(hour: fromHour, minute: fromMinute);
     }
 
-    final toHour = prefs.getInt('copy_runToHour');
-    final toMinute = prefs.getInt('copy_runToMinute');
+    final toHour = db.getInt('copy_runToHour');
+    final toMinute = db.getInt('copy_runToMinute');
     if (toHour != null && toMinute != null) {
       runToTime = TimeOfDay(hour: toHour, minute: toMinute);
     }
 
     // Load run days
     for (int day = 1; day <= 7; day++) {
-      runDays[day] = prefs.getBool('copy_runDay_$day') ?? false;
+      runDays[day] = db.getBool('copy_runDay_$day') ?? false;
     }
 
-    onCompletionAction = prefs.getString('copy_onCompletionAction') ?? 'pause';
+    onCompletionAction = db.getString('copy_onCompletionAction') ?? 'pause';
 
     notifyListeners();
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final db = LocalDbService();
     if (sourcePath != null) {
-      await prefs.setString('copy_sourcePath', sourcePath!);
+      await db.setString('copy_sourcePath', sourcePath!);
     }
     if (destPath != null) {
-      await prefs.setString('copy_destPath', destPath!);
+      await db.setString('copy_destPath', destPath!);
     }
-    await prefs.setInt('copy_fromDateMs', fromDate.millisecondsSinceEpoch);
-    await prefs.setInt('copy_toDateMs', toDate.millisecondsSinceEpoch);
-    await prefs.setBool('copy_enableDateRange', enableDateRange);
-    await prefs.setBool('copy_todayOnly', todayOnly);
-    await prefs.setBool('copy_yesterdayOnly', yesterdayOnly);
+    await db.setInt('copy_fromDate_day', fromDate.day);
+    await db.setInt('copy_fromDate_month', fromDate.month);
+    await db.setInt('copy_fromDate_year', fromDate.year);
+    
+    await db.setInt('copy_toDate_day', toDate.day);
+    await db.setInt('copy_toDate_month', toDate.month);
+    await db.setInt('copy_toDate_year', toDate.year);
 
-    await prefs.setBool('copy_enableTimeWindow', enableTimeWindow);
-    await prefs.setInt('copy_runFromHour', runFromTime.hour);
-    await prefs.setInt('copy_runFromMinute', runFromTime.minute);
-    await prefs.setInt('copy_runToHour', runToTime.hour);
-    await prefs.setInt('copy_runToMinute', runToTime.minute);
+    await db.setBool('copy_enableDateRange', enableDateRange);
+    await db.setBool('copy_todayOnly', todayOnly);
+    await db.setBool('copy_yesterdayOnly', yesterdayOnly);
+
+    await db.setBool('copy_enableTimeWindow', enableTimeWindow);
+    await db.setInt('copy_runFromHour', runFromTime.hour);
+    await db.setInt('copy_runFromMinute', runFromTime.minute);
+    await db.setInt('copy_runToHour', runToTime.hour);
+    await db.setInt('copy_runToMinute', runToTime.minute);
 
     // Save run days
     for (int day = 1; day <= 7; day++) {
-      await prefs.setBool('copy_runDay_$day', runDays[day] ?? false);
+      await db.setBool('copy_runDay_$day', runDays[day] ?? false);
     }
 
     // Save multiple directories
-    await prefs.setBool('copy_useMultiDirs', useMultipleDirectories);
+    await db.setBool('copy_useMultiDirs', useMultipleDirectories);
     final pairsJson = jsonEncode(directoryPairs.map((p) => p.toJson()).toList());
-    await prefs.setString('copy_directoryPairs', pairsJson);
+    await db.setString('copy_directoryPairs', pairsJson);
 
-    await prefs.setString('copy_onCompletionAction', onCompletionAction);
+    await db.setString('copy_onCompletionAction', onCompletionAction);
   }
 
   void setSourcePath(String? path) {
@@ -528,16 +537,24 @@ class CopyFilesProvider with ChangeNotifier {
 
   Future<void> pickPairSource(int index) async {
     final path = await getDirectoryPath(initialDirectory: directoryPairs[index].sourcePath);
-    if (path != null) {
+    if (path != null) setPairSource(index, path);
+  }
+
+  Future<void> pickPairDest(int index) async {
+    final path = await getDirectoryPath(initialDirectory: directoryPairs[index].destPath);
+    if (path != null) setPairDest(index, path);
+  }
+
+  void setPairSource(int index, String? path) {
+    if (index >= 0 && index < directoryPairs.length) {
       directoryPairs[index].sourcePath = path;
       _saveSettings();
       notifyListeners();
     }
   }
 
-  Future<void> pickPairDest(int index) async {
-    final path = await getDirectoryPath(initialDirectory: directoryPairs[index].destPath);
-    if (path != null) {
+  void setPairDest(int index, String? path) {
+    if (index >= 0 && index < directoryPairs.length) {
       directoryPairs[index].destPath = path;
       _saveSettings();
       notifyListeners();

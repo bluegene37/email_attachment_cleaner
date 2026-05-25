@@ -32,6 +32,7 @@ class CountFilesScreen extends StatelessWidget {
                         label: 'Target Folder',
                         path: provider.targetPath,
                         onPick: provider.isCounting ? null : provider.pickTarget,
+                        onChanged: provider.isCounting ? null : provider.setTargetPath,
                       ),
                     ),
                     const SizedBox(height: 10),

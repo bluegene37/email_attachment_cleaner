@@ -7,8 +7,11 @@ import 'providers/copy_files_provider.dart';
 import 'providers/count_files_provider.dart';
 import 'providers/history_provider.dart';
 import 'theme/app_theme.dart';
+import 'services/local_db_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await LocalDbService().init();
   runApp(const MyApp());
 }
 

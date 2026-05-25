@@ -54,12 +54,14 @@ class CopyFilesScreen extends StatelessWidget {
                               label: 'Source',
                               path: provider.sourcePath,
                               onPick: provider.isProcessing ? null : provider.pickSource,
+                              onChanged: provider.isProcessing ? null : provider.setSourcePath,
                             ),
                             const SizedBox(height: 8),
                             PathRow(
                               label: 'Destination',
                               path: provider.destPath,
                               onPick: provider.isProcessing ? null : provider.pickDest,
+                              onChanged: provider.isProcessing ? null : provider.setDestPath,
                             ),
                           ] else ...[
                             // Multi-pair mode
@@ -525,6 +527,10 @@ class CopyFilesScreen extends StatelessWidget {
                             await provider.pickPairSource(i);
                             setDialogState(() {});
                           },
+                          onChanged: (val) {
+                            provider.setPairSource(i, val);
+                            setDialogState(() {});
+                          },
                         ),
                         const SizedBox(height: 4),
                         PathRow(
@@ -532,6 +538,10 @@ class CopyFilesScreen extends StatelessWidget {
                           path: provider.directoryPairs[i].destPath,
                           onPick: () async {
                             await provider.pickPairDest(i);
+                            setDialogState(() {});
+                          },
+                          onChanged: (val) {
+                            provider.setPairDest(i, val);
                             setDialogState(() {});
                           },
                         ),

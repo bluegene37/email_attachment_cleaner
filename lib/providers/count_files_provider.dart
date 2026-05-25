@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../services/file_logger.dart';
 import '../services/history_service.dart';
+import '../services/local_db_service.dart';
 import '../models/run_record.dart';
 
 class CountFilesProvider with ChangeNotifier {
@@ -33,26 +33,30 @@ class CountFilesProvider with ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    targetPath = prefs.getString('count_targetPath');
+    final db = LocalDbService();
+    targetPath = db.getString('count_targetPath');
     notifyListeners();
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final db = LocalDbService();
     if (targetPath != null) {
-      await prefs.setString('count_targetPath', targetPath!);
+      await db.setString('count_targetPath', targetPath!);
     }
   }
 
   Future<void> pickTarget() async {
     final path = await getDirectoryPath(initialDirectory: targetPath);
     if (path != null) {
-      targetPath = path;
-      _saveSettings();
+      setTargetPath(path);
       _addLog('✓ Target selected: $targetPath');
-      notifyListeners();
     }
+  }
+
+  void setTargetPath(String path) {
+    targetPath = path;
+    _saveSettings();
+    notifyListeners();
   }
 
   void stop() {
