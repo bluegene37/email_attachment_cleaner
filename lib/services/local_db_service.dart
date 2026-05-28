@@ -90,4 +90,21 @@ class LocalDbService {
     _config.remove(key);
     await _saveConfig();
   }
+
+  List<String> getRecentDirectories() {
+    return getStringList('recent_directories') ?? [];
+  }
+
+  Future<void> addRecentDirectory(String path) async {
+    if (path.trim().isEmpty) return;
+    final recent = getRecentDirectories();
+    if (recent.contains(path)) {
+      recent.remove(path);
+    }
+    recent.insert(0, path);
+    if (recent.length > 20) {
+      recent.removeLast();
+    }
+    await setStringList('recent_directories', recent);
+  }
 }

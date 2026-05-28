@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -57,6 +58,14 @@ class FileProcessProvider with ChangeNotifier {
   bool isProcessing = false;
   List<String> logs = [];
   String currentStatus = 'Idle';
+
+  // Age filter
+  bool enableAgeFilter = false;
+  String ageFilterUnit = 'Days';
+  int ageFilterValue = 30;
+
+  // Date range filter for Transfer
+  bool enableDateRange = false;
 
   // Resume state
   String? lastProcessedParent;
@@ -137,12 +146,15 @@ class FileProcessProvider with ChangeNotifier {
     destPath = db.getString('destPath');
     clientName = db.getString('clientName') ?? 'WaterBrothers';
     selectedYear = db.getInt('selectedYear') ?? 2025;
+    enableAgeFilter = db.getBool('transfer_enableAgeFilter') ?? false;
+    ageFilterUnit = db.getString('transfer_ageFilterUnit') ?? 'Days';
+    ageFilterValue = db.getInt('transfer_ageFilterValue') ?? 30;
+    enableDateRange = db.getBool('transfer_enableDateRange') ?? false;
     final savedMonths = db.getStringList('transfer_validMonths');
     if (savedMonths != null && savedMonths.isNotEmpty) {
       validMonths = savedMonths;
     }
-    lastProcessedParent = db.getString('lastProcessedParent');
-    lastProcessedChild = db.getString('lastProcessedChild');
+    _loadProgress();
 
     // Load time window settings
     enableTimeWindow = db.getBool('transfer_enableTimeWindow') ?? false;
@@ -174,6 +186,10 @@ class FileProcessProvider with ChangeNotifier {
     if (destPath != null) await db.setString('destPath', destPath!);
     await db.setString('clientName', clientName);
     await db.setInt('selectedYear', selectedYear);
+    await db.setBool('transfer_enableAgeFilter', enableAgeFilter);
+    await db.setString('transfer_ageFilterUnit', ageFilterUnit);
+    await db.setInt('transfer_ageFilterValue', ageFilterValue);
+    await db.setBool('transfer_enableDateRange', enableDateRange);
     await db.setStringList('transfer_validMonths', validMonths);
 
     await db.setBool('transfer_enableTimeWindow', enableTimeWindow);
@@ -190,20 +206,42 @@ class FileProcessProvider with ChangeNotifier {
     await db.setString('transfer_onCompletionAction', onCompletionAction);
   }
 
+  String get _progressFilePath {
+    final s = sourcePath?.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_') ?? 'src';
+    final d = destPath?.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_') ?? 'dst';
+    return r'C:\temp\file transfer\transfer_progress_' + s + '_' + d + '.json';
+  }
+
+  Future<void> _loadProgress() async {
+    lastProcessedParent = null;
+    lastProcessedChild = null;
+    try {
+      final file = File(_progressFilePath);
+      if (await file.exists()) {
+        final data = jsonDecode(await file.readAsString());
+        lastProcessedParent = data['parent'];
+        lastProcessedChild = data['child'];
+      }
+    } catch (_) {}
+  }
+
   Future<void> _saveProgress(String parent, String child) async {
-    final db = LocalDbService();
-    await db.setString('lastProcessedParent', parent);
-    await db.setString('lastProcessedChild', child);
     lastProcessedParent = parent;
     lastProcessedChild = child;
+    try {
+      final file = File(_progressFilePath);
+      if (!await file.parent.exists()) await file.parent.create(recursive: true);
+      await file.writeAsString(jsonEncode({'parent': parent, 'child': child}));
+    } catch (_) {}
   }
 
   Future<void> clearProgress() async {
-    final db = LocalDbService();
-    await db.remove('lastProcessedParent');
-    await db.remove('lastProcessedChild');
     lastProcessedParent = null;
     lastProcessedChild = null;
+    try {
+      final file = File(_progressFilePath);
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
     _addLog('✓ Progress cleared.');
     notifyListeners();
   }
@@ -216,14 +254,22 @@ class FileProcessProvider with ChangeNotifier {
 
   void setSourcePath(String? path) {
     sourcePath = _sanitizePath(path);
+    if (sourcePath != null) {
+      LocalDbService().addRecentDirectory(sourcePath!);
+    }
     _detectClientName();
     _saveSettings();
+    _loadProgress();
     notifyListeners();
   }
 
   void setDestPath(String? path) {
     destPath = _sanitizePath(path);
+    if (destPath != null) {
+      LocalDbService().addRecentDirectory(destPath!);
+    }
     _saveSettings();
+    _loadProgress();
     notifyListeners();
   }
 
@@ -263,6 +309,32 @@ class FileProcessProvider with ChangeNotifier {
 
   void setYear(int year) {
     selectedYear = year;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setEnableDateRange(bool val) {
+    enableDateRange = val;
+    if (val) enableAgeFilter = false;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setEnableAgeFilter(bool val) {
+    enableAgeFilter = val;
+    if (val) enableDateRange = false;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setAgeFilterUnit(String unit) {
+    ageFilterUnit = unit;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setAgeFilterValue(int val) {
+    ageFilterValue = val;
     _saveSettings();
     notifyListeners();
   }
@@ -743,12 +815,28 @@ class FileProcessProvider with ChangeNotifier {
       FileStat stats = await file.stat();
       DateTime modified = stats.modified;
 
+      // Age filter check
+      if (enableAgeFilter) {
+        DateTime threshold;
+        final now = DateTime.now();
+        if (ageFilterUnit == 'Days') {
+          threshold = now.subtract(Duration(days: ageFilterValue));
+        } else if (ageFilterUnit == 'Months') {
+          threshold = DateTime(now.year, now.month - ageFilterValue, now.day);
+        } else {
+          threshold = DateTime(now.year - ageFilterValue, now.month, now.day);
+        }
+        if (modified.isAfter(threshold)) {
+          return;
+        }
+      }
+
       String yearStr = DateFormat('yyyy').format(modified);
       String monthStr = DateFormat('MMM').format(modified); // 'Jan', 'Feb'
 
       // Check filters
-      if (int.parse(yearStr) <= selectedYear &&
-          validMonths.contains(monthStr)) {
+      if (!enableDateRange || (int.parse(yearStr) <= selectedYear &&
+          validMonths.contains(monthStr))) {
         // Move it
         await _moveFile(file, yearStr, monthStr);
       }

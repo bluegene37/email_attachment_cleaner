@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import '../services/local_db_service.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // Color Palette
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +373,34 @@ class _PathRowState extends State<PathRow> {
           ),
         ),
         const SizedBox(width: 8),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.history, color: AppColors.accent),
+          tooltip: 'Recent Directories',
+          color: AppColors.bgDark2,
+          constraints: const BoxConstraints(minWidth: 400, maxWidth: 600),
+          itemBuilder: (context) {
+            final recent = LocalDbService().getRecentDirectories();
+            if (recent.isEmpty) {
+              return [
+                const PopupMenuItem<String>(
+                  value: '',
+                  enabled: false,
+                  child: Text('No recent directories', style: TextStyle(color: AppColors.textMuted)),
+                )
+              ];
+            }
+            return recent.map((path) => PopupMenuItem<String>(
+              value: path,
+              child: Text(path, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+            )).toList();
+          },
+          onSelected: (path) {
+            if (path.isNotEmpty && widget.onChanged != null) {
+              widget.onChanged!(path);
+            }
+          },
+        ),
+        const SizedBox(width: 4),
         ElevatedButton(
           onPressed: widget.onPick,
           style: ElevatedButton.styleFrom(

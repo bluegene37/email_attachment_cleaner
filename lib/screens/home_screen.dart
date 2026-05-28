@@ -45,192 +45,269 @@ class TransferScreen extends StatelessWidget {
                             onChanged: provider.setDestPath,
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              SizedBox(
-                                width: 250,
-                                child: InputDecorator(
-                                  decoration: const InputDecoration(
-                                    labelText: 'Client Name',
-                                  ),
-                                  child: Text(
-                                    provider.clientName,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              SizedBox(
-                                width: 100,
-                                child: DropdownButtonFormField<int>(
-                                  initialValue: provider.selectedYear,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Year',
-                                  ),
-                                  dropdownColor: AppColors.bgDark2,
-                                  items: provider.availableYears.map((int value) {
-                                    return DropdownMenuItem<int>(
-                                      value: value,
-                                      child: Text(
-                                        value.toString(),
-                                        style: const TextStyle(color: AppColors.textPrimary),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) provider.setYear(val);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
+                          Theme(
+                            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                            child: ExpansionTile(
+                              title: const Text('Advanced Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.accent)),
+                              iconColor: AppColors.accent,
+                              collapsedIconColor: AppColors.textSecondary,
+                              tilePadding: EdgeInsets.zero,
+                              childrenPadding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                              children: [
+                                Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'Months:',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textSecondary,
-                                        fontSize: 13,
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          SizedBox(
+                                            width: 24, height: 24,
+                                            child: Checkbox(
+                                              value: provider.enableDateRange,
+                                              onChanged: provider.isProcessing ? null : (val) => provider.setEnableDateRange(val ?? false),
+                                              visualDensity: VisualDensity.compact,
+                                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          const Text('Date Range', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
+                                        ],
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Wrap(
-                                      spacing: 6.0,
-                                      runSpacing: 4.0,
-                                      children: provider.allMonths.map((m) {
-                                        final isSelected = provider.validMonths.contains(m);
-                                        return FilterChip(
-                                          label: Text(m),
-                                          selected: isSelected,
-                                          onSelected: (bool selected) {
-                                            provider.toggleMonth(m);
-                                          },
-                                          visualDensity: VisualDensity.compact,
-                                        );
-                                      }).toList(),
+                                    const SizedBox(width: 16),
+                                    SizedBox(
+                                      width: 100,
+                                      child: DropdownButtonFormField<int>(
+                                        initialValue: provider.selectedYear,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Year',
+                                        ),
+                                        dropdownColor: AppColors.bgDark2,
+                                        items: provider.availableYears.map((int value) {
+                                          return DropdownMenuItem<int>(
+                                            value: value,
+                                            child: Text(
+                                              value.toString(),
+                                              style: const TextStyle(color: AppColors.textPrimary),
+                                            ),
+                                          );
+                                        }).toList(),
+                                        onChanged: (!provider.isProcessing && provider.enableDateRange)
+                                            ? (val) {
+                                                if (val != null) provider.setYear(val);
+                                              }
+                                            : null,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Months:',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.textSecondary,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Wrap(
+                                            spacing: 6.0,
+                                            runSpacing: 4.0,
+                                            children: provider.allMonths.map((m) {
+                                              final isSelected = provider.validMonths.contains(m);
+                                              return FilterChip(
+                                                label: Text(m),
+                                                selected: isSelected,
+                                                onSelected: (!provider.isProcessing && provider.enableDateRange)
+                                                    ? (bool selected) {
+                                                        provider.toggleMonth(m);
+                                                      }
+                                                    : null,
+                                                visualDensity: VisualDensity.compact,
+                                              );
+                                            }).toList(),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          // Run Time row
-                          IntrinsicHeight(
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 24, height: 24,
-                                  child: Checkbox(
-                                    value: provider.enableTimeWindow,
-                                    onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
-                                    visualDensity: VisualDensity.compact,
-                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
+                                const SizedBox(height: 8),
+                                const Divider(color: AppColors.cardBorder, thickness: 1),
+                                const SizedBox(height: 8),
+                                // Age filter
+                                Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 24, height: 24,
+                                      child: Checkbox(
+                                        value: provider.enableAgeFilter,
+                                        onChanged: provider.isProcessing ? null : (val) => provider.setEnableAgeFilter(val ?? false),
+                                        visualDensity: VisualDensity.compact,
+                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Text('Older than', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
+                                    const SizedBox(width: 12),
+                                    SizedBox(
+                                      width: 100,
+                                      child: DropdownButtonFormField<int>(
+                                        isExpanded: true,
+                                        value: provider.ageFilterValue,
+                                        decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                        dropdownColor: AppColors.bgDark2,
+                                        items: List.generate(31, (index) => index + 1).map((int value) {
+                                          return DropdownMenuItem<int>(
+                                            value: value,
+                                            child: Text(value.toString(), style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
+                                          );
+                                        }).toList(),
+                                        onChanged: (!provider.isProcessing && provider.enableAgeFilter)
+                                            ? (val) { if (val != null) provider.setAgeFilterValue(val); }
+                                            : null,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    SizedBox(
+                                      width: 130,
+                                      child: DropdownButtonFormField<String>(
+                                        isExpanded: true,
+                                        value: provider.ageFilterUnit,
+                                        decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
+                                        dropdownColor: AppColors.bgDark2,
+                                        items: ['Days', 'Months', 'Years'].map((String value) {
+                                          return DropdownMenuItem<String>(
+                                            value: value,
+                                            child: Text(value, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13)),
+                                          );
+                                        }).toList(),
+                                        onChanged: (!provider.isProcessing && provider.enableAgeFilter)
+                                            ? (val) { if (val != null) provider.setAgeFilterUnit(val); }
+                                            : null,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 6),
-                                const Text('Run Time', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
-                                const SizedBox(width: 12),
-                                SizedBox(
-                                  width: 100,
-                                  child: StyledTimePicker(
-                                    label: 'From',
-                                    time: provider.runFromTime,
-                                    enabled: !provider.isProcessing && provider.enableTimeWindow,
-                                    onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunFromTime(time),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 100,
-                                  child: StyledTimePicker(
-                                    label: 'To',
-                                    time: provider.runToTime,
-                                    enabled: !provider.isProcessing && provider.enableTimeWindow,
-                                    onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunToTime(time),
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                const VerticalDivider(width: 1, thickness: 1),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Wrap(
-                                    spacing: 4,
-                                    runSpacing: 2,
+                                const SizedBox(height: 10),
+                                // Run Time row
+                                IntrinsicHeight(
+                                  child: Row(
                                     children: [
-                                      for (final entry in {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}.entries)
-                                        FilterChip(
-                                          label: Text(entry.value, style: const TextStyle(fontSize: 11)),
-                                          selected: provider.runDays[entry.key] ?? false,
-                                          onSelected: provider.isProcessing
-                                              ? null
-                                              : (val) => provider.setRunDay(entry.key, val),
+                                      SizedBox(
+                                        width: 24, height: 24,
+                                        child: Checkbox(
+                                          value: provider.enableTimeWindow,
+                                          onChanged: provider.isProcessing ? null : (val) => provider.setEnableTimeWindow(val ?? false),
                                           visualDensity: VisualDensity.compact,
                                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                          padding: const EdgeInsets.symmetric(horizontal: 4),
                                         ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Text('Run Time', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
+                                      const SizedBox(width: 12),
+                                      SizedBox(
+                                        width: 100,
+                                        child: StyledTimePicker(
+                                          label: 'From',
+                                          time: provider.runFromTime,
+                                          enabled: !provider.isProcessing && provider.enableTimeWindow,
+                                          onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunFromTime(time),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      SizedBox(
+                                        width: 100,
+                                        child: StyledTimePicker(
+                                          label: 'To',
+                                          time: provider.runToTime,
+                                          enabled: !provider.isProcessing && provider.enableTimeWindow,
+                                          onPicked: provider.isProcessing ? (time) {} : (time) => provider.setRunToTime(time),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      const VerticalDivider(width: 1, thickness: 1),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Wrap(
+                                          spacing: 4,
+                                          runSpacing: 2,
+                                          children: [
+                                            for (final entry in {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}.entries)
+                                              FilterChip(
+                                                label: Text(entry.value, style: const TextStyle(fontSize: 11)),
+                                                selected: provider.runDays[entry.key] ?? false,
+                                                onSelected: provider.isProcessing
+                                                    ? null
+                                                    : (val) => provider.setRunDay(entry.key, val),
+                                                visualDensity: VisualDensity.compact,
+                                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
+                                const SizedBox(height: 8),
+                                // When Complete row
+                                Row(
+                                  children: [
+                                    const SizedBox(width: 30),
+                                    const Text('When Complete', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
+                                    const SizedBox(width: 12),
+                                    ToggleButtons(
+                                      isSelected: [
+                                        provider.onCompletionAction == 'pause',
+                                        provider.onCompletionAction == 'stop',
+                                      ],
+                                      onPressed: provider.isProcessing ? null : (index) {
+                                        provider.setOnCompletionAction(index == 0 ? 'pause' : 'stop');
+                                      },
+                                      borderRadius: BorderRadius.circular(8),
+                                      constraints: const BoxConstraints(minHeight: 30, minWidth: 80),
+                                      children: const [
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 8),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.pause_circle_outline, size: 16),
+                                              SizedBox(width: 4),
+                                              Text('Pause'),
+                                            ],
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 8),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.stop_circle_outlined, size: 16),
+                                              SizedBox(width: 4),
+                                              Text('Stop'),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      provider.onCompletionAction == 'pause'
+                                          ? 'Will re-run at the next start time'
+                                          : 'Will stop after completion',
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          // When Complete row
-                          Row(
-                            children: [
-                              const SizedBox(width: 30),
-                              const Text('When Complete', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
-                              const SizedBox(width: 12),
-                              ToggleButtons(
-                                isSelected: [
-                                  provider.onCompletionAction == 'pause',
-                                  provider.onCompletionAction == 'stop',
-                                ],
-                                onPressed: provider.isProcessing ? null : (index) {
-                                  provider.setOnCompletionAction(index == 0 ? 'pause' : 'stop');
-                                },
-                                borderRadius: BorderRadius.circular(8),
-                                constraints: const BoxConstraints(minHeight: 30, minWidth: 80),
-                                children: const [
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 8),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.pause_circle_outline, size: 16),
-                                        SizedBox(width: 4),
-                                        Text('Pause'),
-                                      ],
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 8),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.stop_circle_outlined, size: 16),
-                                        SizedBox(width: 4),
-                                        Text('Stop'),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                provider.onCompletionAction == 'pause'
-                                    ? 'Will re-run at the next start time'
-                                    : 'Will stop after completion',
-                                style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
-                              ),
-                            ],
                           ),
                         ],
                       ),

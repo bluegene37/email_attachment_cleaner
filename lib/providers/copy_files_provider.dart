@@ -44,6 +44,9 @@ class _IsolateParams {
   final bool enableDateRange;
   final int fromEpochMs;
   final int toEpochMs;
+  final bool enableAgeFilter;
+  final String ageFilterUnit;
+  final int ageFilterValue;
   final SendPort sendPort;
   final String? progressFilePath;
   final Set<String> completedDirs;
@@ -54,6 +57,9 @@ class _IsolateParams {
     required this.enableDateRange,
     required this.fromEpochMs,
     required this.toEpochMs,
+    required this.enableAgeFilter,
+    required this.ageFilterUnit,
+    required this.ageFilterValue,
     required this.sendPort,
     this.progressFilePath,
     this.completedDirs = const {},
@@ -206,6 +212,11 @@ class CopyFilesProvider with ChangeNotifier {
 
 
 
+  // Age filter
+  bool enableAgeFilter = false;
+  String ageFilterUnit = 'Days';
+  int ageFilterValue = 30;
+
   // Date range filter (from/to inclusive)
   bool enableDateRange = false;
   DateTime fromDate = DateTime(2025, 1, 1);
@@ -307,6 +318,10 @@ class CopyFilesProvider with ChangeNotifier {
       toDate = DateTime(tYear, tMonth, tDay);
     }
     
+    enableAgeFilter = db.getBool('copy_enableAgeFilter') ?? false;
+    ageFilterUnit = db.getString('copy_ageFilterUnit') ?? 'Days';
+    ageFilterValue = db.getInt('copy_ageFilterValue') ?? 30;
+
     enableDateRange = db.getBool('copy_enableDateRange') ?? false;
     todayOnly = db.getBool('copy_todayOnly') ?? false;
     yesterdayOnly = db.getBool('copy_yesterdayOnly') ?? false;
@@ -367,6 +382,10 @@ class CopyFilesProvider with ChangeNotifier {
     await db.setInt('copy_toDate_month', toDate.month);
     await db.setInt('copy_toDate_year', toDate.year);
 
+    await db.setBool('copy_enableAgeFilter', enableAgeFilter);
+    await db.setString('copy_ageFilterUnit', ageFilterUnit);
+    await db.setInt('copy_ageFilterValue', ageFilterValue);
+
     await db.setBool('copy_enableDateRange', enableDateRange);
     await db.setBool('copy_todayOnly', todayOnly);
     await db.setBool('copy_yesterdayOnly', yesterdayOnly);
@@ -398,12 +417,41 @@ class CopyFilesProvider with ChangeNotifier {
 
   void setSourcePath(String? path) {
     sourcePath = _sanitizePath(path);
+    if (sourcePath != null) {
+      LocalDbService().addRecentDirectory(sourcePath!);
+    }
     _saveSettings();
     notifyListeners();
   }
 
   void setDestPath(String? path) {
     destPath = _sanitizePath(path);
+    if (destPath != null) {
+      LocalDbService().addRecentDirectory(destPath!);
+    }
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setEnableAgeFilter(bool val) {
+    enableAgeFilter = val;
+    if (val) {
+      enableDateRange = false;
+      todayOnly = false;
+      yesterdayOnly = false;
+    }
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setAgeFilterUnit(String unit) {
+    ageFilterUnit = unit;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setAgeFilterValue(int val) {
+    ageFilterValue = val;
     _saveSettings();
     notifyListeners();
   }
@@ -414,6 +462,8 @@ class CopyFilesProvider with ChangeNotifier {
     if (!val) {
       todayOnly = false;
       yesterdayOnly = false;
+    } else {
+      enableAgeFilter = false;
     }
     _saveSettings();
     notifyListeners();
@@ -441,6 +491,7 @@ class CopyFilesProvider with ChangeNotifier {
 
   void setTodayOnly(bool val) {
     todayOnly = val;
+    if (val) enableAgeFilter = false;
     _applyQuickDateFilter();
     _saveSettings();
     notifyListeners();
@@ -448,6 +499,7 @@ class CopyFilesProvider with ChangeNotifier {
 
   void setYesterdayOnly(bool val) {
     yesterdayOnly = val;
+    if (val) enableAgeFilter = false;
     _applyQuickDateFilter();
     _saveSettings();
     notifyListeners();
@@ -552,14 +604,22 @@ class CopyFilesProvider with ChangeNotifier {
 
   void setPairSource(int index, String? path) {
     if (index < 0 || index >= directoryPairs.length) return;
-    directoryPairs[index].sourcePath = _sanitizePath(path);
+    final sanitized = _sanitizePath(path);
+    directoryPairs[index].sourcePath = sanitized;
+    if (sanitized != null) {
+      LocalDbService().addRecentDirectory(sanitized);
+    }
     _saveSettings();
     notifyListeners();
   }
 
   void setPairDest(int index, String? path) {
     if (index < 0 || index >= directoryPairs.length) return;
-    directoryPairs[index].destPath = _sanitizePath(path);
+    final sanitized = _sanitizePath(path);
+    directoryPairs[index].destPath = sanitized;
+    if (sanitized != null) {
+      LocalDbService().addRecentDirectory(sanitized);
+    }
     _saveSettings();
     notifyListeners();
   }
@@ -866,6 +926,18 @@ class CopyFilesProvider with ChangeNotifier {
       to   = DateTime(td.year, td.month, td.day);
     }
 
+    late final DateTime ageThreshold;
+    if (params.enableAgeFilter) {
+      final now = DateTime.now();
+      if (params.ageFilterUnit == 'Days') {
+        ageThreshold = now.subtract(Duration(days: params.ageFilterValue));
+      } else if (params.ageFilterUnit == 'Months') {
+        ageThreshold = DateTime(now.year, now.month - params.ageFilterValue, now.day);
+      } else {
+        ageThreshold = DateTime(now.year - params.ageFilterValue, now.month, now.day);
+      }
+    }
+
     // ── Pre-list destination directory ──────────────────────────────
     // Build a name→size map with a single dir listing instead of
     // stat()-ing each destination file individually (huge win on SMB).
@@ -899,6 +971,14 @@ class CopyFilesProvider with ChangeNotifier {
           // old pattern of conditional stat() + separate length() call.
           final FileStat stats = await entity.stat();
           final int sourceSize = stats.size;
+
+          // Age filter
+          if (params.enableAgeFilter) {
+            if (stats.modified.isAfter(ageThreshold)) {
+              counts.filesSkipped++;
+              return;
+            }
+          }
 
           // Date-range filter
           if (params.enableDateRange) {
@@ -1206,6 +1286,9 @@ class CopyFilesProvider with ChangeNotifier {
       enableDateRange: enableDateRange,
       fromEpochMs: fromDate.millisecondsSinceEpoch,
       toEpochMs: toDate.millisecondsSinceEpoch,
+      enableAgeFilter: enableAgeFilter,
+      ageFilterUnit: ageFilterUnit,
+      ageFilterValue: ageFilterValue,
       sendPort: receivePort.sendPort,
       progressFilePath: progressPath,
       completedDirs: resumeDirs,
