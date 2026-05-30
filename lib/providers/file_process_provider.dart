@@ -16,7 +16,11 @@ class _TransferControl {
   final bool pause;
   final bool resume;
   final bool stop;
-  _TransferControl({this.pause = false, this.resume = false, this.stop = false});
+  _TransferControl({
+    this.pause = false,
+    this.resume = false,
+    this.stop = false,
+  });
 }
 
 class _TransferParams {
@@ -31,6 +35,8 @@ class _TransferParams {
   final String? lastParent;
   final String? lastChild;
   final SendPort mainSendPort;
+  final int initialFilesMoved;
+  final int initialErrors;
 
   _TransferParams({
     required this.sourcePath,
@@ -44,6 +50,8 @@ class _TransferParams {
     this.lastParent,
     this.lastChild,
     required this.mainSendPort,
+    this.initialFilesMoved = 0,
+    this.initialErrors = 0,
   });
 }
 
@@ -165,11 +173,10 @@ class FileProcessProvider with ChangeNotifier {
   Timer? _scheduleTimer;
   Timer? _completionRescheduleTimer;
   Completer<void>? _pauseCompleter;
-  
+
   // Isolate state
   Isolate? _workerIsolate;
   SendPort? _workerControlPort;
-
 
   FileProcessProvider() {
     _loadSettings();
@@ -279,29 +286,48 @@ class FileProcessProvider with ChangeNotifier {
   Future<void> _loadProgress() async {
     lastProcessedParent = null;
     lastProcessedChild = null;
+    filesMoved = 0;
+    errors = 0;
     try {
       final file = File(_progressFilePath);
       if (await file.exists()) {
         final data = jsonDecode(await file.readAsString());
         lastProcessedParent = data['parent'];
         lastProcessedChild = data['child'];
+        filesMoved = data['filesMoved'] ?? 0;
+        errors = data['errors'] ?? 0;
       }
     } catch (_) {}
   }
 
-  Future<void> _saveProgress(String parent, String child) async {
-    lastProcessedParent = parent;
-    lastProcessedChild = child;
+  Future<void> _saveProgress(
+    String? parent,
+    String? child,
+    int fMoved,
+    int errs,
+  ) async {
+    if (parent != null) lastProcessedParent = parent;
+    if (child != null) lastProcessedChild = child;
     try {
       final file = File(_progressFilePath);
-      if (!await file.parent.exists()) await file.parent.create(recursive: true);
-      await file.writeAsString(jsonEncode({'parent': parent, 'child': child}));
+      if (!await file.parent.exists())
+        await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode({
+          'parent': lastProcessedParent,
+          'child': lastProcessedChild,
+          'filesMoved': fMoved,
+          'errors': errs,
+        }),
+      );
     } catch (_) {}
   }
 
   Future<void> clearProgress() async {
     lastProcessedParent = null;
     lastProcessedChild = null;
+    filesMoved = 0;
+    errors = 0;
     try {
       final file = File(_progressFilePath);
       if (await file.exists()) await file.delete();
@@ -519,8 +545,11 @@ class FileProcessProvider with ChangeNotifier {
 
     final now = DateTime.now();
     DateTime nextRun = DateTime(
-      now.year, now.month, now.day,
-      runFromTime.hour, runFromTime.minute,
+      now.year,
+      now.month,
+      now.day,
+      runFromTime.hour,
+      runFromTime.minute,
     );
 
     if (!nextRun.isAfter(now)) {
@@ -532,7 +561,9 @@ class FileProcessProvider with ChangeNotifier {
 
     isPaused = true;
     currentStatus = '🏁 Completed. Next run at $formattedNext';
-    _addLog('🏁 Transfer complete. Scheduled next run at $formattedNext (in ${waitDuration.inHours}h ${waitDuration.inMinutes % 60}m).');
+    _addLog(
+      '🏁 Transfer complete. Scheduled next run at $formattedNext (in ${waitDuration.inHours}h ${waitDuration.inMinutes % 60}m).',
+    );
     notifyListeners();
 
     _completionRescheduleTimer = Timer(waitDuration, () {
@@ -552,7 +583,9 @@ class FileProcessProvider with ChangeNotifier {
     _completionRescheduleTimer = null;
 
     _workerControlPort?.send(_TransferControl(stop: true));
-    
+
+    _saveProgress(lastProcessedParent, lastProcessedChild, filesMoved, errors);
+
     // Fallback kill if isolate is completely stuck
     Future.delayed(const Duration(seconds: 2), () {
       if (_workerIsolate != null) {
@@ -588,15 +621,17 @@ class FileProcessProvider with ChangeNotifier {
   Future<void> startProcessing() async {
     if (sourcePath == null || destPath == null) {
       _addLog('✗ Error: Source or Destination not selected.');
-      await _fileLogger.error('Transfer', 'Source or Destination not selected.');
+      await _fileLogger.error(
+        'Transfer',
+        'Source or Destination not selected.',
+      );
       return;
     }
 
     isProcessing = true;
     _stopRequested = false;
     isPaused = false;
-    filesMoved = 0;
-    errors = 0;
+    // Initial filesMoved and errors are kept from _loadProgress()
     notifyListeners();
 
     _addLog('⏳ Starting transfer...');
@@ -604,8 +639,10 @@ class FileProcessProvider with ChangeNotifier {
     _addLog('  Destination: $destPath');
     _addLog('  Filter: Year $selectedYear, Months ${validMonths.join(', ')}');
     if (enableTimeWindow) {
-      final String formattedFrom = '${runFromTime.hour.toString().padLeft(2, '0')}:${runFromTime.minute.toString().padLeft(2, '0')}';
-      final String formattedTo = '${runToTime.hour.toString().padLeft(2, '0')}:${runToTime.minute.toString().padLeft(2, '0')}';
+      final String formattedFrom =
+          '${runFromTime.hour.toString().padLeft(2, '0')}:${runFromTime.minute.toString().padLeft(2, '0')}';
+      final String formattedTo =
+          '${runToTime.hour.toString().padLeft(2, '0')}:${runToTime.minute.toString().padLeft(2, '0')}';
       _addLog('  Run window: $formattedFrom – $formattedTo');
     }
 
@@ -621,7 +658,10 @@ class FileProcessProvider with ChangeNotifier {
       _addLog(
         '⏳ Resuming from Parent: [$lastProcessedParent], Child: [$lastProcessedChild]',
       );
-      await _fileLogger.info('Transfer', 'Resuming from Parent: [$lastProcessedParent], Child: [$lastProcessedChild]');
+      await _fileLogger.info(
+        'Transfer',
+        'Resuming from Parent: [$lastProcessedParent], Child: [$lastProcessedChild]',
+      );
     }
 
     // Setup periodic schedule evaluation
@@ -651,13 +691,16 @@ class FileProcessProvider with ChangeNotifier {
       final sourceDir = Directory(sourcePath!);
       if (!await sourceDir.exists()) {
         _addLog('✗ Error: Source directory does not exist.');
-        await _fileLogger.error('Transfer', 'Source directory does not exist: $sourcePath');
+        await _fileLogger.error(
+          'Transfer',
+          'Source directory does not exist: $sourcePath',
+        );
         _finishRun(wasStopped: false);
         return;
       }
 
       final receivePort = ReceivePort();
-      
+
       _workerIsolate = await Isolate.spawn(
         _isolateWorker,
         _TransferParams(
@@ -672,6 +715,8 @@ class FileProcessProvider with ChangeNotifier {
           lastParent: lastProcessedParent,
           lastChild: lastProcessedChild,
           mainSendPort: receivePort.sendPort,
+          initialFilesMoved: filesMoved,
+          initialErrors: errors,
         ),
       );
 
@@ -687,13 +732,18 @@ class FileProcessProvider with ChangeNotifier {
 
           filesMoved = message.filesMoved;
           errors = message.errors;
-          
+
           if (message.currentStatus != null) {
             currentStatus = message.currentStatus!;
           }
 
           if (message.saveParent != null && message.saveChild != null) {
-            _saveProgress(message.saveParent!, message.saveChild!);
+            _saveProgress(
+              message.saveParent!,
+              message.saveChild!,
+              filesMoved,
+              errors,
+            );
           }
 
           for (final log in message.logs) {
@@ -705,7 +755,10 @@ class FileProcessProvider with ChangeNotifier {
 
           if (message.criticalError != null) {
             _addLog('✗ Critical Error: ${message.criticalError}');
-            _fileLogger.error('Transfer', 'Critical Error: ${message.criticalError}');
+            _fileLogger.error(
+              'Transfer',
+              'Critical Error: ${message.criticalError}',
+            );
           }
 
           if (message.isDone) {
@@ -733,7 +786,9 @@ class FileProcessProvider with ChangeNotifier {
     if (wasStopped) {
       _addLog('⛔ Stopped by user.');
     } else {
-      _addLog('🏁 Completed: ${_numFmt.format(filesMoved)} moved, ${_numFmt.format(errors)} errors in $elapsed');
+      _addLog(
+        '🏁 Completed: ${_numFmt.format(filesMoved)} moved, ${_numFmt.format(errors)} errors in $elapsed',
+      );
     }
 
     final runId = _fileLogger.getRunId('Transfer') ?? 'UNKNOWN';
@@ -745,18 +800,20 @@ class FileProcessProvider with ChangeNotifier {
       errors: errors,
       wasStopped: wasStopped,
     );
-    
+
     try {
-      await HistoryService().saveRecord(RunRecord(
-        id: runId,
-        operation: 'Transfer',
-        startTime: start,
-        endTime: DateTime.now(),
-        filesProcessed: filesMoved,
-        errors: errors,
-        status: wasStopped ? 'Stopped' : 'Completed',
-        configSummary: 'Source: $sourcePath, Dest: $destPath',
-      ));
+      await HistoryService().saveRecord(
+        RunRecord(
+          id: runId,
+          operation: 'Transfer',
+          startTime: start,
+          endTime: DateTime.now(),
+          filesProcessed: filesMoved,
+          errors: errors,
+          status: wasStopped ? 'Stopped' : 'Completed',
+          configSummary: 'Source: $sourcePath, Dest: $destPath',
+        ),
+      );
     } catch (_) {}
 
     _stopTimer();
@@ -793,16 +850,60 @@ class FileProcessProvider with ChangeNotifier {
 
   static Future<void> _isolateWorker(_TransferParams params) async {
     final workerReceivePort = ReceivePort();
-    params.mainSendPort.send(_TransferProgress(workerSendPort: workerReceivePort.sendPort));
+    params.mainSendPort.send(
+      _TransferProgress(workerSendPort: workerReceivePort.sendPort),
+    );
 
     bool isPaused = false;
     bool stopRequested = false;
     Completer<void>? pauseCompleter;
 
+    Future<bool> awaitIfPaused() async {
+      if (isPaused && pauseCompleter != null && !pauseCompleter!.isCompleted) {
+        await pauseCompleter!.future;
+      }
+      return !stopRequested;
+    }
+
+    int filesMoved = params.initialFilesMoved;
+    int errors = params.initialErrors;
+    List<String> logBatch = [];
+    int scanCount = 0;
+    final Map<String, bool> subdirCache = {};
+    final Set<String> createdDirs = {};
+
+    int filesSinceLastSave = 0;
+    const int saveProgressInterval = 20;
+
+    void flushProgress(
+      String? status, {
+      bool force = false,
+      String? sParent,
+      String? sChild,
+    }) {
+      if (force ||
+          logBatch.isNotEmpty ||
+          scanCount % 10 == 0 ||
+          sParent != null) {
+        params.mainSendPort.send(
+          _TransferProgress(
+            filesMoved: filesMoved,
+            errors: errors,
+            logs: List.from(logBatch),
+            currentStatus: status,
+            saveParent: sParent,
+            saveChild: sChild,
+          ),
+        );
+        logBatch.clear();
+      }
+    }
+
     workerReceivePort.listen((message) {
       if (message is _TransferControl) {
         if (message.stop) {
           stopRequested = true;
+          flushProgress('⛔ Stopping...', force: true);
           if (pauseCompleter != null && !pauseCompleter!.isCompleted) {
             pauseCompleter!.complete();
           }
@@ -817,37 +918,6 @@ class FileProcessProvider with ChangeNotifier {
         }
       }
     });
-
-    Future<bool> awaitIfPaused() async {
-      if (isPaused && pauseCompleter != null && !pauseCompleter!.isCompleted) {
-        await pauseCompleter!.future;
-      }
-      return !stopRequested;
-    }
-
-    int filesMoved = 0;
-    int errors = 0;
-    List<String> logBatch = [];
-    int scanCount = 0;
-    final Map<String, bool> subdirCache = {};
-    final Set<String> createdDirs = {};
-    
-    int filesSinceLastSave = 0;
-    const int saveProgressInterval = 20;
-
-    void flushProgress(String? status, {bool force = false, String? sParent, String? sChild}) {
-      if (force || logBatch.isNotEmpty || scanCount % 10 == 0 || sParent != null) {
-        params.mainSendPort.send(_TransferProgress(
-          filesMoved: filesMoved,
-          errors: errors,
-          logs: List.from(logBatch),
-          currentStatus: status,
-          saveParent: sParent,
-          saveChild: sChild,
-        ));
-        logBatch.clear();
-      }
-    }
 
     Future<bool> hasSubdirectories(Directory dir) async {
       final key = dir.path;
@@ -870,7 +940,10 @@ class FileProcessProvider with ChangeNotifier {
 
     Future<void> moveFile(File file, String year, String month) async {
       try {
-        String relativePath = p.relative(file.parent.path, from: params.sourcePath);
+        String relativePath = p.relative(
+          file.parent.path,
+          from: params.sourcePath,
+        );
         String destDir = p.join(params.destPath, year, relativePath);
         String destFilePath = p.join(destDir, p.basename(file.path));
 
@@ -901,9 +974,17 @@ class FileProcessProvider with ChangeNotifier {
           if (params.ageFilterUnit == 'Days') {
             threshold = now.subtract(Duration(days: params.ageFilterValue));
           } else if (params.ageFilterUnit == 'Months') {
-            threshold = DateTime(now.year, now.month - params.ageFilterValue, now.day);
+            threshold = DateTime(
+              now.year,
+              now.month - params.ageFilterValue,
+              now.day,
+            );
           } else {
-            threshold = DateTime(now.year - params.ageFilterValue, now.month, now.day);
+            threshold = DateTime(
+              now.year - params.ageFilterValue,
+              now.month,
+              now.day,
+            );
           }
           if (modified.isAfter(threshold)) return;
         }
@@ -911,8 +992,9 @@ class FileProcessProvider with ChangeNotifier {
         String yearStr = DateFormat('yyyy').format(modified);
         String monthStr = DateFormat('MMM').format(modified);
 
-        if (!params.enableDateRange || 
-            (int.parse(yearStr) <= params.selectedYear && params.validMonths.contains(monthStr))) {
+        if (!params.enableDateRange ||
+            (int.parse(yearStr) <= params.selectedYear &&
+                params.validMonths.contains(monthStr))) {
           await moveFile(file, yearStr, monthStr);
         }
       } catch (e) {
@@ -930,25 +1012,34 @@ class FileProcessProvider with ChangeNotifier {
         if (entity is File) {
           filesInDir++;
           if (filesInDir % 1000 == 0) {
-            flushProgress('⏳ Scanning files in ${p.basename(dir.path)}: $filesInDir files checked', force: true);
+            flushProgress(
+              '⏳ Scanning files in ${p.basename(dir.path)}: $filesInDir files checked',
+              force: true,
+            );
           }
 
           Directory fileParent = entity.parent;
           if (await hasSubdirectories(fileParent)) continue;
-          
+
           await checkAndMoveFile(entity);
         }
       }
     }
 
-    Future<void> processSubDirectories(Directory parentDir, String parentName) async {
-      bool skippingChildren = params.lastChild != null && params.lastParent == parentName;
+    Future<void> processSubDirectories(
+      Directory parentDir,
+      String parentName,
+    ) async {
+      bool skippingChildren =
+          params.lastChild != null && params.lastParent == parentName;
 
       List<FileSystemEntity> childEntities = [];
       await for (final e in parentDir.list(recursive: false)) {
         if (e is Directory) childEntities.add(e);
       }
-      childEntities.sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+      childEntities.sort(
+        (a, b) => p.basename(a.path).compareTo(p.basename(b.path)),
+      );
 
       for (var entity in childEntities) {
         if (stopRequested) return;
@@ -965,11 +1056,15 @@ class FileProcessProvider with ChangeNotifier {
         }
 
         scanCount++;
-        
+
         filesSinceLastSave++;
         if (filesSinceLastSave >= saveProgressInterval) {
           filesSinceLastSave = 0;
-          flushProgress('⏳ Scanning: $parentName / $childName', sParent: parentName, sChild: childName);
+          flushProgress(
+            '⏳ Scanning: $parentName / $childName',
+            sParent: parentName,
+            sChild: childName,
+          );
         } else {
           flushProgress('⏳ Scanning: $parentName / $childName');
         }
@@ -985,7 +1080,9 @@ class FileProcessProvider with ChangeNotifier {
       await for (final e in rootDir.list(recursive: false)) {
         if (e is Directory) parentEntities.add(e);
       }
-      parentEntities.sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+      parentEntities.sort(
+        (a, b) => p.basename(a.path).compareTo(p.basename(b.path)),
+      );
 
       for (var entity in parentEntities) {
         if (stopRequested) return;
@@ -1011,10 +1108,9 @@ class FileProcessProvider with ChangeNotifier {
       flushProgress('DONE', force: true);
       params.mainSendPort.send(_TransferProgress(isDone: true));
     } catch (e) {
-      params.mainSendPort.send(_TransferProgress(
-        criticalError: e.toString(),
-        isDone: true,
-      ));
+      params.mainSendPort.send(
+        _TransferProgress(criticalError: e.toString(), isDone: true),
+      );
     }
   }
 }
